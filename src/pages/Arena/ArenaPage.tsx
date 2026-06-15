@@ -53,13 +53,45 @@ export default function ArenaPage() {
     if (mode !== 'battle' || !autoPlay || !currentBattle || currentBattle.phase === 'ended') return;
     const t = setTimeout(() => {
       const result = simulateBattleRound(currentBattle);
-      updateBattle(result.state);
-      if (result.state.phase === 'ended') {
-        handleBattleEnd(result.state);
+      const nextState = decrementCooldowns(result.state);
+      updateBattle(nextState);
+      if (nextState.phase === 'ended') {
+        handleBattleEnd(nextState);
       }
     }, 3000);
     return () => clearTimeout(t);
   }, [mode, autoPlay, currentBattle]); // eslint-disable-line
+
+  const decrementCooldowns = (state: any): any => {
+    const dec = (obj: Record<string, number>) => {
+      const next: Record<string, number> = {};
+      Object.keys(obj).forEach(k => { next[k] = Math.max(0, obj[k] - 1); });
+      return next;
+    };
+    return {
+      ...state,
+      playerArmy: {
+        ...state.playerArmy,
+        skillCooldowns: dec(state.playerArmy.skillCooldowns || {}),
+        tacticalCooldowns: dec(state.playerArmy.tacticalCooldowns || {}),
+        surpriseTroops: Math.min(500, (state.playerArmy.surpriseTroops || 0) + 25),
+        units: (state.playerArmy.units || []).map((u: any) => ({
+          ...u,
+          statusEffects: (u.statusEffects || []).map((e: any) => ({ ...e, duration: Math.max(0, e.duration - 1) })).filter((e: any) => e.duration > 0 || e.type !== 'buff'),
+        })),
+      },
+      enemyArmy: {
+        ...state.enemyArmy,
+        skillCooldowns: dec(state.enemyArmy.skillCooldowns || {}),
+        tacticalCooldowns: dec(state.enemyArmy.tacticalCooldowns || {}),
+        surpriseTroops: Math.min(500, (state.enemyArmy.surpriseTroops || 0) + 25),
+        units: (state.enemyArmy.units || []).map((u: any) => ({
+          ...u,
+          statusEffects: (u.statusEffects || []).map((e: any) => ({ ...e, duration: Math.max(0, e.duration - 1) })).filter((e: any) => e.duration > 0 || e.type !== 'buff'),
+        })),
+      },
+    };
+  };
 
   const enterMatchmaking = () => {
     const ticket: MatchmakingTicket = {
@@ -92,6 +124,7 @@ export default function ArenaPage() {
       formationIntegrity: 100,
       totalPower: composition.totalPower,
       skillCooldowns: {},
+      tacticalCooldowns: {},
       surpriseTroops: 350,
     };
     const battle = createBattle(playerSide as any);
@@ -124,8 +157,9 @@ export default function ArenaPage() {
   const nextTurn = () => {
     if (!currentBattle || currentBattle.phase === 'ended') return;
     const result = simulateBattleRound(currentBattle);
-    updateBattle(result.state);
-    if (result.state.phase === 'ended') handleBattleEnd(result.state);
+    const nextState = decrementCooldowns(result.state);
+    updateBattle(nextState);
+    if (nextState.phase === 'ended') handleBattleEnd(nextState);
   };
 
   const returnToLobby = () => {
@@ -534,24 +568,27 @@ function BattleArena({ battle, autoPlay, onToggleAuto, onNextTurn, onSurprise, o
               variant="danger"
               icon={<AlertTriangle className="w-4 h-4" />}
               onClick={onSurprise}
-              disabled={winner !== null || battle.playerArmy.surpriseTroops <= 0}
+              disabled={winner !== null || battle.playerArmy.surpriseTroops < 50 || (battle.playerArmy.tacticalCooldowns?.['surprise'] || 0) > 0}
             >
               🎯 派遣奇袭 ({battle.playerArmy.surpriseTroops}人)
+              {(battle.playerArmy.tacticalCooldowns?.['surprise'] || 0) > 0 && ` 冷却(${battle.playerArmy.tacticalCooldowns['surprise']})`}
             </Button>
             <Button
               icon={<Shield className="w-4 h-4" />}
               onClick={() => onChangeFormation('defensive')}
-              disabled={winner !== null}
+              disabled={winner !== null || (battle.playerArmy.tacticalCooldowns?.['formation'] || 0) > 0}
             >
               切换防御阵
+              {(battle.playerArmy.tacticalCooldowns?.['formation'] || 0) > 0 && `(${battle.playerArmy.tacticalCooldowns['formation']})`}
             </Button>
             <Button
               variant="ghost"
               icon={<Swords className="w-4 h-4" />}
               onClick={() => onChangeFormation('offensive')}
-              disabled={winner !== null}
+              disabled={winner !== null || (battle.playerArmy.tacticalCooldowns?.['formation'] || 0) > 0}
             >
               切换进攻阵
+              {(battle.playerArmy.tacticalCooldowns?.['formation'] || 0) > 0 && `(${battle.playerArmy.tacticalCooldowns['formation']})`}
             </Button>
             <Button
               variant="ghost"

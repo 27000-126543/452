@@ -74,6 +74,7 @@ const generateEnemySide = (playerPower: number): BattleSide => {
     formationIntegrity: 100,
     totalPower: Math.floor(targetPower),
     skillCooldowns: {},
+    tacticalCooldowns: {},
     surpriseTroops: Math.floor(Math.random() * 500),
   };
 };

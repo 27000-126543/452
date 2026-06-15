@@ -259,6 +259,7 @@ export interface BattleSide {
   formationIntegrity: number;
   totalPower: number;
   skillCooldowns: Record<string, number>;
+  tacticalCooldowns: Record<string, number>;
   surpriseTroops: number;
 }
 

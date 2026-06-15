@@ -17,7 +17,7 @@ import { clsx } from 'clsx';
 interface HexCellData {
   coord: HexCoord;
   terrain: TerrainType;
-  unit?: { icon: string; name: string; type: UnitType; count: number; side: 'player' | 'enemy' };
+  unit?: { icon: string; name: string; type: UnitType; currentCount: number; side: 'player' | 'enemy' };
 }
 
 const terrainIcons: Record<TerrainType, string> = {
@@ -67,7 +67,7 @@ export default function SandboxPage() {
         (u: any) => u.position?.q === cell.coord.q && u.position?.r === cell.coord.r && u.currentCount > 0
       );
       const eu = simulation?.enemyArmy?.units?.find(
-        (u: any) => u.position?.q === cell.coord.q && u.position?.r === (5 - cell.coord.r) && u.currentCount > 0
+        (u: any) => u.position?.q === cell.coord.q && u.position?.r === cell.coord.r && u.currentCount > 0
       );
       if (pu) return { ...cell, unit: { ...pu, side: 'player' as const } };
       if (eu) return { ...cell, unit: { ...eu, side: 'enemy' as const } };
@@ -84,6 +84,7 @@ export default function SandboxPage() {
       formationIntegrity: 100,
       totalPower: composition.totalPower,
       skillCooldowns: {},
+      tacticalCooldowns: {},
       surpriseTroops: 300,
     };
     const battle = {
@@ -99,6 +100,7 @@ export default function SandboxPage() {
         formationIntegrity: 100,
         totalPower: composition.totalPower * (0.9 + Math.random() * 0.2),
         skillCooldowns: {},
+        tacticalCooldowns: {},
         surpriseTroops: 0,
       },
       currentTurn: 0,
@@ -237,9 +239,9 @@ export default function SandboxPage() {
                           <div className="text-center">
                             <div className="text-xl leading-none">{cell.unit.icon}</div>
                             {cell.unit.side === 'player' ? (
-                              <div className="text-[9px] font-mono text-magic-gold mt-0.5 font-bold">{cell.unit.count}</div>
+                              <div className="text-[9px] font-mono text-magic-gold mt-0.5 font-bold">{cell.unit.currentCount}</div>
                             ) : (
-                              <div className="text-[9px] font-mono text-red-300 mt-0.5 font-bold">{cell.unit.count}</div>
+                              <div className="text-[9px] font-mono text-red-300 mt-0.5 font-bold">{cell.unit.currentCount}</div>
                             )}
                           </div>
                         ) : (

@@ -357,8 +357,10 @@ export const useBattleStore = create<BattleStateStore>()(
         })),
       activateSurpriseAttack: () =>
         set((s) => {
-          if (!s.currentBattle || s.currentBattle.playerArmy.surpriseTroops <= 0) return s;
-          const damage = s.currentBattle.playerArmy.surpriseTroops * 15;
+          if (!s.currentBattle || s.currentBattle.playerArmy.surpriseTroops < 50) return s;
+          if ((s.currentBattle.playerArmy.tacticalCooldowns?.['surprise'] || 0) > 0) return s;
+          const deployed = Math.min(200, Math.max(100, Math.floor(s.currentBattle.playerArmy.surpriseTroops / 2)));
+          const damage = deployed * 15;
           const updatedEnemyUnits = s.currentBattle.enemyArmy.units.map(u => {
             const casualties = Math.min(u.currentCount, Math.floor(damage / s.currentBattle.enemyArmy.units.length / 10));
             return {
@@ -371,14 +373,18 @@ export const useBattleStore = create<BattleStateStore>()(
           return {
             currentBattle: {
               ...s.currentBattle,
-              playerArmy: { ...s.currentBattle.playerArmy, surpriseTroops: 0 },
+              playerArmy: {
+                ...s.currentBattle.playerArmy,
+                surpriseTroops: Math.max(0, s.currentBattle.playerArmy.surpriseTroops - deployed),
+                tacticalCooldowns: { ...(s.currentBattle.playerArmy.tacticalCooldowns || {}), surprise: 3 },
+              },
               enemyArmy: { ...s.currentBattle.enemyArmy, units: updatedEnemyUnits },
               log: [...s.currentBattle.log, {
                 turn: s.currentBattle.currentTurn,
                 timestamp: Date.now(),
                 type: 'surprise',
                 side: 'player',
-                message: '🎯 奇袭部队出击！造成敌方混乱，大量伤亡！',
+                message: `🎯 奇袭部队出击！派遣${deployed}人造成敌方混乱，大量伤亡！`,
               }],
             },
           };
@@ -420,6 +426,7 @@ export const useBattleStore = create<BattleStateStore>()(
       changeFormation: (formationType) =>
         set((s) => {
           if (!s.currentBattle) return s;
+          if ((s.currentBattle.playerArmy.tacticalCooldowns?.['formation'] || 0) > 0) return s;
           const bonuses = {
             offensive: { atk: 1.2, def: 0.9 },
             defensive: { atk: 0.9, def: 1.2 },
@@ -431,6 +438,7 @@ export const useBattleStore = create<BattleStateStore>()(
               ...s.currentBattle,
               playerArmy: {
                 ...s.currentBattle.playerArmy,
+                tacticalCooldowns: { ...(s.currentBattle.playerArmy.tacticalCooldowns || {}), formation: 2 },
                 units: s.currentBattle.playerArmy.units.map(u => ({
                   ...u,
                   attack: Math.floor(u.attack * bonuses.atk),
