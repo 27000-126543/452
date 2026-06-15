@@ -312,6 +312,12 @@ export interface BidEntry {
   timestamp: number;
 }
 
+export interface ListingEvent {
+  type: 'listed' | 'repriced' | 'delisted' | 'sold' | 'expired';
+  timestamp: number;
+  detail?: string;
+}
+
 export interface TradeOrder {
   id: string;
   sellerId: string;
@@ -319,12 +325,16 @@ export interface TradeOrder {
   itemType: 'blueprint' | 'contract' | 'material';
   itemData: TradeItem;
   price: number;
+  originalPrice?: number;
+  listingFee?: number;
   suggestedPriceRange: [number, number];
   listedAt: number;
   expiresAt: number;
-  status: 'active' | 'sold' | 'expired';
+  status: 'active' | 'sold' | 'expired' | 'delisted';
   bidHistory: BidEntry[];
   isAuction: boolean;
+  views: number;
+  listingHistory: ListingEvent[];
 }
 
 export interface MatchmakingTicket {

@@ -463,11 +463,14 @@ export const useBattleStore = create<BattleStateStore>()(
 interface MarketState {
   orders: TradeOrder[];
   myListings: TradeOrder[];
-  purchaseHistory: { orderId: string; itemName: string; price: number; timestamp: number }[];
+  purchaseHistory: { orderId: string; itemName: string; price: number; timestamp: number; type: string }[];
   addOrder: (order: TradeOrder) => void;
   removeOrder: (orderId: string) => void;
   purchaseOrder: (orderId: string, buyerId: string) => TradeOrder | null;
   placeBid: (orderId: string, bidderId: string, bidderName: string, amount: number) => boolean;
+  repriceOrder: (orderId: string, newPrice: number, newRange: [number, number]) => void;
+  delistOrder: (orderId: string) => void;
+  incrementViews: (orderId: string) => void;
   refreshOrders: () => void;
 }
 
@@ -492,13 +495,17 @@ export const useMarketStore = create<MarketState>()(
         if (!order || order.isAuction) return null;
         set((s) => ({
           orders: s.orders.map(o =>
-            o.id === orderId ? { ...o, status: 'sold' as const } : o
+            o.id === orderId ? { ...o, status: 'sold' as const, listingHistory: [...(o.listingHistory || []), { type: 'sold' as const, timestamp: Date.now(), detail: `${order.price}金币` }] } : o
+          ),
+          myListings: s.myListings.map(o =>
+            o.id === orderId ? { ...o, status: 'sold' as const, listingHistory: [...(o.listingHistory || []), { type: 'sold' as const, timestamp: Date.now(), detail: `${order.price}金币` }] } : o
           ),
           purchaseHistory: [...s.purchaseHistory, {
             orderId,
             itemName: order.itemData.name,
             price: order.price,
             timestamp: Date.now(),
+            type: order.itemType,
           }],
         }));
         return order;
@@ -523,6 +530,46 @@ export const useMarketStore = create<MarketState>()(
         }));
         return true;
       },
+      repriceOrder: (orderId, newPrice, newRange) =>
+        set((s) => ({
+          orders: s.orders.map(o =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  price: newPrice,
+                  suggestedPriceRange: newRange,
+                  listingHistory: [...(o.listingHistory || []), { type: 'repriced' as const, timestamp: Date.now(), detail: `${o.price}→${newPrice}` }],
+                }
+              : o
+          ),
+          myListings: s.myListings.map(o =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  price: newPrice,
+                  suggestedPriceRange: newRange,
+                  listingHistory: [...(o.listingHistory || []), { type: 'repriced' as const, timestamp: Date.now(), detail: `${o.price}→${newPrice}` }],
+                }
+              : o
+          ),
+        })),
+      delistOrder: (orderId) =>
+        set((s) => ({
+          orders: s.orders.map(o =>
+            o.id === orderId
+              ? { ...o, status: 'delisted' as const, listingHistory: [...(o.listingHistory || []), { type: 'delisted' as const, timestamp: Date.now() }] }
+              : o
+          ),
+          myListings: s.myListings.map(o =>
+            o.id === orderId
+              ? { ...o, status: 'delisted' as const, listingHistory: [...(o.listingHistory || []), { type: 'delisted' as const, timestamp: Date.now() }] }
+              : o
+          ),
+        })),
+      incrementViews: (orderId) =>
+        set((s) => ({
+          orders: s.orders.map(o => o.id === orderId ? { ...o, views: (o.views || 0) + 1 } : o),
+        })),
       refreshOrders: () => {
         const extraOrders: TradeOrder[] = [
           {

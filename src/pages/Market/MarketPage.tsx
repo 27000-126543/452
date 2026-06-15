@@ -1,10 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Store, Scroll, FileSignature, Package, Coins, TrendingUp, TrendingDown,
   Clock, Search, Filter, ChevronDown, ChevronUp, Gavel, ShoppingCart,
   AlertTriangle, Megaphone, Check, Star, History, Tag, RefreshCw,
-  X, Info, Sparkles
+  X, Info, Sparkles, Edit3, Eye, ArrowDownCircle, DollarSign, BarChart3, Activity
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -38,7 +38,7 @@ export default function MarketPage() {
   const [bidInput, setBidInput] = useState<Record<string, string>>({});
   const [showListingModal, setShowListingModal] = useState(false);
 
-  const { orders, myListings, purchaseHistory, purchaseOrder, placeBid, addOrder, refreshOrders } = useMarketStore();
+  const { orders, myListings, purchaseHistory, purchaseOrder, placeBid, addOrder, repriceOrder, delistOrder, incrementViews, refreshOrders } = useMarketStore();
   const player = usePlayerStore(s => s.player);
   const updateGold = usePlayerStore(s => s.updateGold);
   const addNews = useContentStore(s => s.addNews);
@@ -58,7 +58,7 @@ export default function MarketPage() {
     if (tab === 'my-listings') {
       list = myListings;
     }
-    if (rarityFilter !== 'all') {
+    if (tab !== 'my-listings' && rarityFilter !== 'all') {
       list = list.filter(o => o.itemData.rarity === rarityFilter);
     }
     if (search) {
@@ -136,6 +136,9 @@ export default function MarketPage() {
   }) => {
     const range = calculatePriceRange(data.itemType, data.rarity);
     const now = Date.now();
+    const listingFee = Math.ceil(data.price * 0.01);
+    if (player.gold < listingFee) return;
+    updateGold(-listingFee);
     const order: TradeOrder = {
       id: generateId(),
       sellerId: player.id,
@@ -150,12 +153,16 @@ export default function MarketPage() {
         stats: data.stats,
       },
       price: data.price,
+      originalPrice: data.price,
+      listingFee,
       suggestedPriceRange: range,
       listedAt: now,
       expiresAt: now + data.durationHours * 3600 * 1000,
       status: 'active',
       bidHistory: [],
       isAuction: data.isAuction,
+      views: 0,
+      listingHistory: [{ type: 'listed', timestamp: now, detail: `${formatGold(data.price)} 手续费${formatGold(listingFee)}` }],
     };
     addOrder(order);
     addNews({
@@ -290,15 +297,14 @@ export default function MarketPage() {
                 ))
               )}
             </div>
-          ) : tab === 'my-listings' && myListings.length === 0 ? (
-            <div className="text-center py-16 text-gray-500">
-              <Tag className="w-16 h-16 mx-auto mb-4 opacity-30" />
-              <p className="font-display text-lg">暂无出售中的商品</p>
-              <p className="text-sm mt-1">点击右上角「上架出售」开始发布商品</p>
-              <Button variant="primary" className="mt-4" onClick={() => setShowListingModal(true)}>
-                <Package className="w-4 h-4" /> 立即上架
-              </Button>
-            </div>
+          ) : tab === 'my-listings' ? (
+            <MyStallPanel
+              myListings={myListings}
+              playerGold={player.gold}
+              onReprice={(id, price, range) => repriceOrder(id, price, range)}
+              onDelist={(id) => delistOrder(id)}
+              onListNew={() => setShowListingModal(true)}
+            />
           ) : activeOrders.length === 0 ? (
             <div className="text-center py-16 text-gray-500">
               <Store className="w-16 h-16 mx-auto mb-4 opacity-30" />
