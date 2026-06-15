@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Map, Mountain, CloudSun, Trees, Waves, Wind, Play, RotateCcw, Crosshair,
@@ -11,7 +11,7 @@ import { Badge, RarityBadge } from '@/components/ui/Badge';
 import { useArmyStore, useBattleStore } from '@/store';
 import { terrains, weathers, generateId } from '@/data/mockData';
 import { simulateBattleRound, createBattleUnit } from '@/engines/combatEngine';
-import type { TerrainType, WeatherType, HexCoord, UnitType } from '@/types';
+import type { TerrainType, WeatherType, HexCoord, UnitType, BattleUnit } from '@/types';
 import { clsx } from 'clsx';
 
 interface HexCellData {
@@ -43,6 +43,17 @@ function generateHexGrid(): HexCellData[] {
   return cells;
 }
 
+interface DeployedUnit {
+  unitIndex: number;
+  coord: { q: number; r: number };
+}
+
+const unitChoices: { type: UnitType; label: string; icon: string; lucide: typeof Shield }[] = [
+  { type: 'infantry', label: '步兵', icon: '🛡️', lucide: Shield },
+  { type: 'cavalry', label: '骑兵', icon: '⚔️', lucide: Sword },
+  { type: 'mages', label: '法师', icon: '🧙', lucide: Wand2 },
+];
+
 export default function SandboxPage() {
   const { units, composition, generals } = useArmyStore();
   const { currentBattle, setCurrentBattle } = useBattleStore();
@@ -52,6 +63,8 @@ export default function SandboxPage() {
   const [battlePhase, setBattlePhase] = useState<'setup' | 'active' | 'ended'>('setup');
   const [simulation, setSimulation] = useState<any>(null);
   const [logs, setLogs] = useState<string[]>([]);
+  const [selectedUnitType, setSelectedUnitType] = useState<UnitType>('infantry');
+  const [playerDeployment, setPlayerDeployment] = useState<Record<string, DeployedUnit>>({});
 
   const general = generals.find(g => g.id === composition.generalId);
   const playerUnits = units.filter(u =>
@@ -60,7 +73,26 @@ export default function SandboxPage() {
     (composition.mages.unitId === u.id && composition.mages.count > 0)
   );
 
+  const getDeployedUnitInfo = useCallback((key: string) => {
+    const dep = playerDeployment[key];
+    if (!dep) return null;
+    const choice = unitChoices[dep.unitIndex];
+    const slot = choice.type === 'infantry' ? composition.infantry
+      : choice.type === 'cavalry' ? composition.cavalry
+      : composition.mages;
+    const u = units.find(x => x.id === slot.unitId);
+    return u ? { icon: choice.icon, name: u.name, type: choice.type, currentCount: slot.count, side: 'player' as const } : null;
+  }, [playerDeployment, composition, units]);
+
   const gridWithUnits = useMemo(() => {
+    if (battlePhase === 'setup') {
+      return grid.map(cell => {
+        const key = `${cell.coord.q}-${cell.coord.r}`;
+        const deployed = getDeployedUnitInfo(key);
+        if (deployed) return { ...cell, unit: deployed };
+        return cell;
+      });
+    }
     if (!simulation) return grid;
     return grid.map(cell => {
       const pu = simulation?.playerArmy?.units?.find(
@@ -73,14 +105,29 @@ export default function SandboxPage() {
       if (eu) return { ...cell, unit: { ...eu, side: 'enemy' as const } };
       return cell;
     });
-  }, [grid, simulation]);
+  }, [grid, battlePhase, simulation, getDeployedUnitInfo]);
 
   const startSimulation = () => {
+    const deploymentEntries = Object.entries(playerDeployment);
+    const playerBattleUnits: BattleUnit[] = deploymentEntries.length > 0
+      ? deploymentEntries.map(([, dep]) => {
+          const choice = unitChoices[dep.unitIndex];
+          const slot = choice.type === 'infantry' ? composition.infantry
+            : choice.type === 'cavalry' ? composition.cavalry
+            : composition.mages;
+          const u = units.find(x => x.id === slot.unitId);
+          return createBattleUnit(
+            u ? { ...u, count: slot.count } : { id: 'fallback', name: choice.label, type: choice.type, rarity: 'common' as const, level: 1, count: 1000, baseStats: { attack: 50, defense: 50, hp: 500, speed: 50, range: 1, magicPower: 30, supplyCost: 1 }, equipment: [], blueprintId: null, icon: choice.icon },
+            dep.coord,
+          );
+        })
+      : playerUnits.map((u, i) => createBattleUnit(u, { q: i % 3, r: 4 + Math.floor(i / 3) }));
+
     const playerArmy: any = {
       legionName: '我方军团',
       legionBanner: { primary: '#7c3aed', secondary: '#d4af37', emblem: '🐉' },
       general,
-      units: playerUnits.map((u, i) => createBattleUnit(u, { q: i % 3, r: 4 + Math.floor(i / 3) })),
+      units: playerBattleUnits,
       formationIntegrity: 100,
       totalPower: composition.totalPower,
       skillCooldowns: {},
@@ -221,15 +268,32 @@ export default function SandboxPage() {
                     if (!cell) return null;
                     const terrainInfo = terrains.find(t => t.type === cell.terrain)!;
                     const isPlayerSide = cell.coord.r >= 3;
+                    const canDeploy = battlePhase === 'setup' && isPlayerSide;
                     return (
                       <motion.div
                         key={`${q}-${rowIdx}`}
                         whileHover={{ scale: 1.1, zIndex: 10 }}
+                        onClick={() => {
+                          if (!canDeploy) return;
+                          const key = `${cell.coord.q}-${cell.coord.r}`;
+                          const unitIndex = unitChoices.findIndex(c => c.type === selectedUnitType);
+                          setPlayerDeployment(prev => {
+                            const existing = prev[key];
+                            if (existing && existing.unitIndex === unitIndex) {
+                              const next = { ...prev };
+                              delete next[key];
+                              return next;
+                            }
+                            return { ...prev, [key]: { unitIndex, coord: { q: cell.coord.q, r: cell.coord.r } } };
+                          });
+                        }}
                         className={clsx(
                           'hex-cell border-2 text-xs font-display',
+                          canDeploy && 'cursor-pointer',
                           cell.unit?.side === 'player' && 'border-magic-gold shadow-gold-glow ring-2 ring-magic-gold/40 z-10',
                           cell.unit?.side === 'enemy' && 'border-magic-blood shadow-flame-glow ring-2 ring-magic-blood/40 z-10',
-                          !cell.unit && 'border-magic-border/60 hover:border-magic-gold/50'
+                          !cell.unit && canDeploy && 'border-magic-border/60 hover:border-magic-gold/50',
+                          !cell.unit && !canDeploy && 'border-magic-border/60'
                         )}
                         style={{
                           background: `linear-gradient(135deg, ${terrainInfo.color}33, ${terrainInfo.color}55)`,
@@ -262,6 +326,32 @@ export default function SandboxPage() {
                 <Crown className="w-3 h-3" /> 我方阵地
               </span>
             </div>
+
+            {battlePhase === 'setup' && (
+              <div className="mt-4 p-3 rounded-lg bg-magic-panel/60 border border-magic-border">
+                <p className="text-xs text-gray-400 mb-2 flex items-center gap-1">
+                  <Crosshair className="w-3 h-3" /> 选择兵种后点击我方阵地放置
+                </p>
+                <div className="flex gap-2 justify-center">
+                  {unitChoices.map((choice) => (
+                    <button
+                      key={choice.type}
+                      onClick={() => setSelectedUnitType(choice.type)}
+                      className={clsx(
+                        'flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all font-display text-sm',
+                        selectedUnitType === choice.type
+                          ? 'bg-magic-gold/20 border-magic-gold shadow-gold-glow text-magic-gold scale-105'
+                          : 'bg-magic-panel/60 border-magic-border text-gray-300 hover:border-magic-gold/40'
+                      )}
+                    >
+                      <span className="text-xl">{choice.icon}</span>
+                      <span className="font-bold">{choice.label}</span>
+                      <choice.lucide className="w-4 h-4" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {simulation && (
@@ -381,10 +471,11 @@ export default function SandboxPage() {
           <Card icon={<Zap className="w-5 h-5" />} title="操作提示">
             <ul className="space-y-2 text-xs text-gray-400">
               {[
+                { icon: <Crosshair className="w-3 h-3" />, text: '选择兵种，点击我方阵地自由部署' },
                 { icon: <Move className="w-3 h-3" />, text: '选择地形与天气，影响双方战力' },
-                { icon: <Crosshair className="w-3 h-3" />, text: '点击开始推演，自动进行战斗模拟' },
+                { icon: <Play className="w-3 h-3" />, text: '点击开始推演，自动进行战斗模拟' },
                 { icon: <TrendingUp className="w-3 h-3" />, text: '实时观察兵力折损和阵型完整度' },
-                { icon: <RotateCcw className="w-3 h-3" />, text: '随时重置沙盘尝试不同配置' },
+                { icon: <RotateCcw className="w-3 h-3" />, text: '重置保留部署方案，方便调整' },
               ].map((t, i) => (
                 <li key={i} className="flex items-start gap-2 p-1.5 rounded hover:bg-magic-panel/50">
                   <span className="text-magic-gold shrink-0 mt-0.5">{t.icon}</span>

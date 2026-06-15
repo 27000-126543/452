@@ -345,6 +345,8 @@ export const mockTradeOrders: TradeOrder[] = [
     status: 'active',
     bidHistory: [{ bidderId: 'b1', bidderName: '烈焰军团', amount: 185000, timestamp: Date.now() - 3600000 * 2 }],
     isAuction: true,
+    views: 24,
+    listingHistory: [{ type: 'listed', timestamp: Date.now() - 3600000 * 4, detail: '185,000金币' }],
   },
   {
     id: 'to-002',
@@ -359,6 +361,8 @@ export const mockTradeOrders: TradeOrder[] = [
     status: 'active',
     bidHistory: [],
     isAuction: false,
+    views: 18,
+    listingHistory: [{ type: 'listed', timestamp: Date.now() - 3600000 * 12, detail: '92,000金币' }],
   },
   {
     id: 'to-003',
@@ -376,6 +380,8 @@ export const mockTradeOrders: TradeOrder[] = [
       { bidderId: 'b3', bidderName: '黄金之手', amount: 78000, timestamp: Date.now() - 3600000 * 3 },
     ],
     isAuction: true,
+    views: 32,
+    listingHistory: [{ type: 'listed', timestamp: Date.now() - 3600000 * 8, detail: '78,000金币' }],
   },
   {
     id: 'to-004',
@@ -390,6 +396,8 @@ export const mockTradeOrders: TradeOrder[] = [
     status: 'active',
     bidHistory: [],
     isAuction: false,
+    views: 9,
+    listingHistory: [{ type: 'listed', timestamp: Date.now() - 3600000 * 6, detail: '34,500金币' }],
   },
   {
     id: 'to-005',
@@ -404,6 +412,8 @@ export const mockTradeOrders: TradeOrder[] = [
     status: 'active',
     bidHistory: [],
     isAuction: false,
+    views: 5,
+    listingHistory: [{ type: 'listed', timestamp: Date.now() - 3600000 * 2, detail: '18,500金币' }],
   },
 ];
 

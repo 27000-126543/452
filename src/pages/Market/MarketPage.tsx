@@ -508,6 +508,7 @@ export default function MarketPage() {
                 <div className="p-2 rounded-lg bg-magic-bg/60">
                   <p className="text-gray-500 text-[10px] uppercase">在售</p>
                   <p className="font-mono font-bold text-sky-400 mt-0.5">{myListings.filter(m => m.status === 'active').length}</p>
+                  <p className="text-[9px] text-gray-500 mt-0.5">预计{formatGold(myListings.filter(m => m.status === 'active').reduce((s, o) => s + o.price - (o.listingFee || 0), 0))}</p>
                 </div>
                 <div className="p-2 rounded-lg bg-magic-bg/60">
                   <p className="text-gray-500 text-[10px] uppercase">已购</p>
@@ -595,6 +596,224 @@ export default function MarketPage() {
 function RefreshIcon(props: any) { return <RefreshCw {...props} />; }
 function TrendingIcon({ up, className }: { up: boolean; className?: string }) {
   return up ? <TrendingUp className={className} /> : <TrendingDown className={className} />;
+}
+
+function MyStallPanel({ myListings, playerGold, onReprice, onDelist, onListNew }: {
+  myListings: TradeOrder[];
+  playerGold: number;
+  onReprice: (id: string, price: number, range: [number, number]) => void;
+  onDelist: (id: string) => void;
+  onListNew: () => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editPrice, setEditPrice] = useState('');
+  const [historyId, setHistoryId] = useState<string | null>(null);
+
+  const activeListings = myListings.filter(o => o.status === 'active');
+  const closedListings = myListings.filter(o => o.status !== 'active');
+  const totalExpectedRevenue = activeListings.reduce((s, o) => s + (o.price - (o.listingFee || 0)), 0);
+  const totalFees = myListings.reduce((s, o) => s + (o.listingFee || 0), 0);
+
+  const handleReprice = (order: TradeOrder) => {
+    const newPrice = parseInt(editPrice) || 0;
+    if (newPrice <= 0) return;
+    const range = calculatePriceRange(order.itemType, order.itemData.rarity);
+    onReprice(order.id, newPrice, range);
+    setEditingId(null);
+    setEditPrice('');
+  };
+
+  if (myListings.length === 0) {
+    return (
+      <div className="text-center py-16 text-gray-500">
+        <Tag className="w-16 h-16 mx-auto mb-4 opacity-30" />
+        <p className="font-display text-lg">暂无出售中的商品</p>
+        <p className="text-sm mt-1">点击右上角「上架出售」开始发布商品</p>
+        <Button variant="primary" className="mt-4" onClick={onListNew}>
+          <Package className="w-4 h-4" /> 立即上架
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-4 gap-3">
+        <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-900/40 to-magic-panel border border-emerald-500/30">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider">在售商品</p>
+          <p className="font-mono text-2xl font-bold text-emerald-400 mt-1">{activeListings.length}</p>
+        </div>
+        <div className="p-3 rounded-xl bg-gradient-to-br from-magic-gold/15 to-magic-panel border border-magic-gold/30">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider">预计收益</p>
+          <p className="font-mono text-2xl font-bold text-magic-gold mt-1">{formatGold(totalExpectedRevenue)}</p>
+        </div>
+        <div className="p-3 rounded-xl bg-gradient-to-br from-red-900/30 to-magic-panel border border-red-500/20">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider">累计手续费</p>
+          <p className="font-mono text-2xl font-bold text-red-300 mt-1">{formatGold(totalFees)}</p>
+        </div>
+        <div className="p-3 rounded-xl bg-gradient-to-br from-sky-900/30 to-magic-panel border border-sky-500/20">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider">已结束</p>
+          <p className="font-mono text-2xl font-bold text-sky-300 mt-1">{closedListings.length}</p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {myListings.map(order => {
+          const isActive = order.status === 'active';
+          const isEditing = editingId === order.id;
+          const showHistory = historyId === order.id;
+          const priceRange = calculatePriceRange(order.itemType, order.itemData.rarity);
+          const topBid = order.bidHistory.length > 0 ? Math.max(...order.bidHistory.map(b => b.amount)) : 0;
+          const netRevenue = order.price - (order.listingFee || 0);
+
+          return (
+            <div key={order.id} className={clsx(
+              'rounded-xl border-2 overflow-hidden transition-all',
+              isActive
+                ? 'bg-gradient-to-r from-magic-card to-magic-panel/60 border-magic-border hover:border-magic-gold/40'
+                : 'bg-magic-panel/30 border-magic-border/40 opacity-70'
+            )}>
+              <div className="p-4 flex items-center gap-4">
+                <div className={clsx(
+                  'w-14 h-14 shrink-0 rounded-xl flex items-center justify-center text-3xl border-2',
+                  `rarity-${order.itemData.rarity}`
+                )} style={{ borderColor: rarityColors[order.itemData.rarity] }}>
+                  {order.itemData.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="font-display font-bold text-gray-100 truncate">{order.itemData.name}</p>
+                    <RarityBadge rarity={order.itemData.rarity} />
+                    {order.status === 'sold' && <Badge variant="success">已售出</Badge>}
+                    {order.status === 'delisted' && <Badge variant="danger">已下架</Badge>}
+                    {order.status === 'expired' && <Badge variant="warning">已过期</Badge>}
+                    {isActive && <Badge variant="info">在售</Badge>}
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-gray-400">
+                    <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {order.views || 0}次浏览</span>
+                    {order.bidHistory.length > 0 && <span className="flex items-center gap-1"><Gavel className="w-3 h-3 text-magic-gold" /> {order.bidHistory.length}次出价 最高{formatGold(topBid)}</span>}
+                    <span>预计净收 <span className="font-mono text-emerald-400 font-bold">{formatGold(netRevenue)}</span></span>
+                    {order.listingFee && order.listingFee > 0 && <span>手续费 <span className="font-mono text-red-300">{formatGold(order.listingFee)}</span></span>}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  {isEditing ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={editPrice}
+                        onChange={e => setEditPrice(e.target.value.replace(/[^0-9]/g, ''))}
+                        className="magic-input !w-28 !py-1.5 text-center font-mono font-bold"
+                        placeholder={String(order.price)}
+                      />
+                      <Button size="sm" variant="primary" onClick={() => handleReprice(order)}>
+                        <Check className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditPrice(''); }}>
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="font-mono text-2xl font-bold text-magic-gold">{formatGold(order.price)}</p>
+                  )}
+                  {order.originalPrice && order.originalPrice !== order.price && (
+                    <p className="text-[10px] text-gray-500 line-through font-mono">原价 {formatGold(order.originalPrice)}</p>
+                  )}
+                </div>
+              </div>
+
+              {isEditing && (
+                <div className="px-4 pb-3">
+                  <div className="p-2.5 rounded-lg bg-magic-bg/70 border border-magic-border/50">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-gray-400 flex items-center gap-1">
+                        <TrendingUp className="w-3 h-3 text-magic-gold" /> 改价参考区间
+                      </span>
+                      <span className="font-mono text-magic-goldLight">{formatGold(priceRange[0])} ~ {formatGold(priceRange[1])}</span>
+                    </div>
+                    <div className="relative h-4 rounded-full overflow-hidden bg-gradient-to-r from-red-800/30 via-emerald-700/40 to-red-800/30">
+                      <div className="absolute top-0 bottom-0 bg-gradient-to-r from-emerald-700 via-emerald-500 to-emerald-700" style={{ left: '20%', width: '60%' }} />
+                      <div className="absolute top-0 bottom-0 w-2 bg-magic-gold rounded-full shadow-gold-glow transform -translate-x-1/2 transition-all"
+                        style={{ left: `${Math.min(95, Math.max(5, ((parseInt(editPrice) || order.price) / (priceRange[1] * 2)) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isActive && !isEditing && (
+                <div className="px-4 pb-3 flex gap-2">
+                  <Button size="sm" variant="default" icon={<Edit3 className="w-3.5 h-3.5" />} onClick={() => { setEditingId(order.id); setEditPrice(String(order.price)); }}>
+                    改价
+                  </Button>
+                  <Button size="sm" variant="danger" icon={<ArrowDownCircle className="w-3.5 h-3.5" />} onClick={() => onDelist(order.id)}>
+                    下架
+                  </Button>
+                  <Button size="sm" variant="ghost" icon={<History className="w-3.5 h-3.5" />} onClick={() => setHistoryId(showHistory ? null : order.id)}>
+                    {showHistory ? '收起' : '记录'}
+                  </Button>
+                </div>
+              )}
+
+              {!isActive && (
+                <div className="px-4 pb-3">
+                  <Button size="sm" variant="ghost" icon={<History className="w-3.5 h-3.5" />} onClick={() => setHistoryId(showHistory ? null : order.id)}>
+                    {showHistory ? '收起记录' : '查看记录'}
+                  </Button>
+                </div>
+              )}
+
+              {showHistory && order.listingHistory && order.listingHistory.length > 0 && (
+                <div className="px-4 pb-3">
+                  <div className="p-3 rounded-lg bg-magic-bg/50 border border-magic-border/50 space-y-1.5">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wider font-display mb-1">操作历史</p>
+                    {[...order.listingHistory].reverse().map((evt, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <span className={clsx(
+                          'w-2 h-2 rounded-full shrink-0',
+                          evt.type === 'listed' && 'bg-emerald-400',
+                          evt.type === 'repriced' && 'bg-magic-gold',
+                          evt.type === 'delisted' && 'bg-red-400',
+                          evt.type === 'sold' && 'bg-sky-400',
+                          evt.type === 'expired' && 'bg-gray-400',
+                        )} />
+                        <span className="text-gray-400 font-mono">{new Date(evt.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className={clsx(
+                          'font-semibold',
+                          evt.type === 'listed' && 'text-emerald-300',
+                          evt.type === 'repriced' && 'text-magic-gold',
+                          evt.type === 'delisted' && 'text-red-300',
+                          evt.type === 'sold' && 'text-sky-300',
+                          evt.type === 'expired' && 'text-gray-400',
+                        )}>
+                          {evt.type === 'listed' ? '上架' : evt.type === 'repriced' ? '改价' : evt.type === 'delisted' ? '下架' : evt.type === 'sold' ? '售出' : '过期'}
+                        </span>
+                        {evt.detail && <span className="text-gray-500">— {evt.detail}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {showHistory && order.bidHistory && order.bidHistory.length > 0 && (
+                <div className="px-4 pb-3">
+                  <div className="p-3 rounded-lg bg-magic-bg/50 border border-magic-border/50 space-y-1">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wider font-display mb-1">出价记录</p>
+                    {[...order.bidHistory].reverse().slice(0, 8).map((b, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs p-1.5 rounded bg-magic-panel/40">
+                        <span className="text-gray-400">{b.bidderName}</span>
+                        <span className="font-mono text-magic-gold font-bold">{formatGold(b.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 interface ListingFormData {

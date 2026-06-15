@@ -591,6 +591,8 @@ export const useMarketStore = create<MarketState>()(
             status: 'active',
             bidHistory: [],
             isAuction: Math.random() > 0.5,
+            views: Math.floor(Math.random() * 20),
+            listingHistory: [{ type: 'listed' as const, timestamp: Date.now() - Math.floor(Math.random() * 3600000 * 12), detail: `${30000 + Math.floor(Math.random() * 80000)}金币` }],
           },
         ];
         set((s) => ({ orders: [...s.orders, ...extraOrders].slice(0, 30) }));

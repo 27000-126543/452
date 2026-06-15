@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trophy, Users, Zap, Shield, Target, Clock, Swords, Crown, Star, Gift,
-  Heart, AlertTriangle, Award, SkipForward, Crosshair, RefreshCw, TrendingUp
+  Heart, AlertTriangle, Award, SkipForward, Crosshair, RefreshCw, TrendingUp,
+  Activity, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Card from '@/components/ui/Card';
@@ -13,7 +14,7 @@ import { LineAreaChart } from '@/components/charts/Charts';
 import { useBattleStore, useArmyStore, usePlayerStore, useContentStore, useLegionStore, useGlobalStore } from '@/store';
 import { createBattle, simulateBattleRound, estimateWaitTime } from '@/engines/matchmaker';
 import { generateId, terrains, weathers, rarityColors } from '@/data/mockData';
-import type { RankTier, MatchmakingTicket } from '@/types';
+import type { RankTier, MatchmakingTicket, BattleState } from '@/types';
 import { clsx } from 'clsx';
 
 export default function ArenaPage() {
@@ -28,7 +29,7 @@ export default function ArenaPage() {
   const addNews = useContentStore(s => s.addNews);
   const { setMobilization } = useGlobalStore();
 
-  const [mode, setMode] = useState<'lobby' | 'matchmaking' | 'battle' | 'result'>(currentBattle ? 'battle' : 'lobby');
+  const [mode, setMode] = useState<'lobby' | 'matchmaking' | 'battle' | 'result' | 'replay'>(currentBattle ? 'battle' : 'lobby');
   const [waitTime, setWaitTime] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
 
@@ -350,10 +351,14 @@ export default function ArenaPage() {
                         <span className="font-display font-bold text-gray-400">VS</span>
                         <div className="text-2xl">{b.enemyArmy.legionBanner.emblem}</div>
                       </div>
-                      <div className="text-xs space-y-0.5">
+                      <div className="text-xs space-y-0.5 mb-3">
                         <p className="text-magic-gold font-mono">积分 +{b.rewards?.points || 0}</p>
                         <p className="text-amber-400 font-mono">金币 +{b.rewards?.gold || 0}</p>
                       </div>
+                      <Button size="sm" variant="ghost" fullWidth icon={<Activity className="w-3.5 h-3.5" />}
+                        onClick={() => { setCurrentBattle(b); setMode('replay'); }}>
+                        复盘
+                      </Button>
                     </motion.div>
                   ))}
                 </div>
@@ -488,11 +493,34 @@ export default function ArenaPage() {
                 <Button variant="primary" size="lg" icon={<Zap className="w-5 h-5" />} onClick={() => { returnToLobby(); setTimeout(enterMatchmaking, 200); }}>
                   再战一局
                 </Button>
+                <Button size="lg" icon={<Activity className="w-5 h-5" />} onClick={() => setMode('replay')}>
+                  查看复盘
+                </Button>
                 <Button size="lg" onClick={returnToLobby}>
                   返回大厅
                 </Button>
               </div>
             </Card>
+          </motion.div>
+        )}
+
+        {mode === 'replay' && currentBattle && (
+          <motion.div
+            key="replay"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-2xl font-bold glow-text-gold text-magic-gold flex items-center gap-2">
+                <Activity className="w-6 h-6" /> 战斗复盘
+              </h3>
+              <Button icon={<ChevronLeft className="w-4 h-4" />} onClick={() => setMode(currentBattle.phase === 'ended' ? 'result' : 'lobby')}>
+                返回
+              </Button>
+            </div>
+            <BattleReplayPanel battle={currentBattle} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -768,6 +796,254 @@ function BattleUnitsRow({ side, units }: { side: 'player' | 'enemy'; units: any[
 }
 
 function TrendingUpIcon(props: any) { return <TrendingUp {...props} />; }
+
+function BattleReplayPanel({ battle }: { battle: BattleState }) {
+  const [selectedTurn, setSelectedTurn] = useState(1);
+  const totalTurns = battle.currentTurn;
+
+  const turnLogEntries = useMemo(() =>
+    battle.log.filter(e => e.turn === selectedTurn), [battle.log, selectedTurn]);
+
+  const skillEvents = turnLogEntries.filter(e => e.type === 'skill');
+  const formationEvents = turnLogEntries.filter(e => e.type === 'formation');
+  const surpriseEvents = turnLogEntries.filter(e => e.type === 'surprise');
+
+  const keyTurningPoints = useMemo(() => {
+    const turns: number[] = [];
+    let maxCasualtyTurn = 1;
+    let maxCasualty = 0;
+    for (let t = 1; t <= totalTurns; t++) {
+      const entries = battle.log.filter(e => e.turn === t);
+      const hasFirstSkill = entries.some(e => e.type === 'skill') &&
+        !battle.log.filter(e => e.type === 'skill' && e.turn < t).length;
+      const hasFirstSurprise = entries.some(e => e.type === 'surprise') &&
+        !battle.log.filter(e => e.type === 'surprise' && e.turn < t).length;
+      const casualtyEntries = entries.filter(e => e.type === 'casualty');
+      const totalCasualty = casualtyEntries.reduce((s, e) => s + (typeof (e.data as any)?.amount === 'number' ? (e.data as any).amount : 0), 0);
+      if (totalCasualty > maxCasualty) {
+        maxCasualty = totalCasualty;
+        maxCasualtyTurn = t;
+      }
+      if (hasFirstSkill || hasFirstSurprise) {
+        turns.push(t);
+      }
+    }
+    if (!turns.includes(maxCasualtyTurn)) {
+      turns.push(maxCasualtyTurn);
+    }
+    return turns;
+  }, [battle.log, totalTurns]);
+
+  const isKeyTurn = keyTurningPoints.includes(selectedTurn);
+
+  return (
+    <div className="grid grid-cols-12 gap-6">
+      <div className="col-span-12 lg:col-span-4">
+        <Card icon={<Activity className="w-5 h-5" />} title="回合时间轴">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-400 font-display">回合</span>
+              <span className="font-mono text-2xl font-bold text-magic-gold">
+                {selectedTurn} <span className="text-sm text-gray-500">/ {totalTurns}</span>
+              </span>
+            </div>
+
+            <input
+              type="range"
+              min={1}
+              max={totalTurns}
+              value={selectedTurn}
+              onChange={e => setSelectedTurn(Number(e.target.value))}
+              className="w-full accent-magic-gold"
+            />
+
+            <div className="flex items-center justify-between">
+              <Button size="sm" icon={<ChevronLeft className="w-4 h-4" />}
+                onClick={() => setSelectedTurn(Math.max(1, selectedTurn - 1))}
+                disabled={selectedTurn <= 1}>
+                上一回合
+              </Button>
+              <Button size="sm" icon={<ChevronRight className="w-4 h-4" />}
+                onClick={() => setSelectedTurn(Math.min(totalTurns, selectedTurn + 1))}
+                disabled={selectedTurn >= totalTurns}>
+                下一回合
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+              {Array.from({ length: totalTurns }, (_, i) => i + 1).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setSelectedTurn(t)}
+                  className={clsx(
+                    'w-9 h-9 rounded-lg text-xs font-mono font-bold border transition-all',
+                    t === selectedTurn
+                      ? 'bg-magic-gold/30 border-magic-gold text-magic-gold shadow-gold-glow'
+                      : keyTurningPoints.includes(t)
+                        ? 'bg-magic-gold/10 border-magic-gold/40 text-magic-goldLight hover:bg-magic-gold/20'
+                        : 'bg-magic-panel/60 border-magic-border text-gray-400 hover:bg-magic-panel hover:border-magic-gold/30'
+                  )}
+                >
+                  {keyTurningPoints.includes(t) && <span className="mr-0.5">⚡</span>}
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <div className="col-span-12 lg:col-span-8 space-y-4">
+        <Card className={clsx(isKeyTurn && 'border-2 border-magic-gold/60 shadow-gold-glow')}
+          icon={<Swords className="w-5 h-5" />}
+          title={
+            <span className="flex items-center gap-2">
+              回合 {selectedTurn} 战况
+              {isKeyTurn && (
+                <Badge variant="warning"><Zap className="w-3 h-3 mr-1" />关键转折</Badge>
+              )}
+            </span>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <h6 className="text-xs text-gray-400 font-display uppercase tracking-wider mb-2">伤亡统计</h6>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-magic-border">
+                      <th className="text-left py-2 px-3 text-gray-500 font-display">阵营</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-display">初始兵力</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-display">当前兵力</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-display">伤亡</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-display">伤亡率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { label: '我方', units: battle.playerArmy.units, color: 'text-emerald-400' },
+                      { label: '敌方', units: battle.enemyArmy.units, color: 'text-red-400' },
+                    ].map(side => {
+                      const initial = side.units.reduce((s, u) => s + u.initialCount, 0);
+                      const current = side.units.reduce((s, u) => s + u.currentCount, 0);
+                      const cas = initial - current;
+                      const rate = initial > 0 ? Math.round((cas / initial) * 100) : 0;
+                      return (
+                        <tr key={side.label} className="border-b border-magic-border/30">
+                          <td className={clsx('py-2 px-3 font-semibold', side.color)}>{side.label}</td>
+                          <td className="py-2 px-3 text-right font-mono text-gray-300">{initial.toLocaleString()}</td>
+                          <td className="py-2 px-3 text-right font-mono text-gray-300">{current.toLocaleString()}</td>
+                          <td className="py-2 px-3 text-right font-mono text-red-400">{cas.toLocaleString()}</td>
+                          <td className="py-2 px-3 text-right">
+                            <span className={clsx('font-mono font-bold', rate > 50 ? 'text-red-400' : rate > 25 ? 'text-amber-400' : 'text-emerald-400')}>
+                              {rate}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                {[
+                  { label: '我方', units: battle.playerArmy.units },
+                  { label: '敌方', units: battle.enemyArmy.units },
+                ].map(side => (
+                  <div key={side.label} className="space-y-1.5">
+                    <p className="text-xs text-gray-500 font-display">{side.label}兵种明细</p>
+                    {side.units.map(u => {
+                      const cas = u.initialCount - u.currentCount;
+                      const rate = u.initialCount > 0 ? Math.round((cas / u.initialCount) * 100) : 0;
+                      return (
+                        <div key={u.unitId} className="flex items-center gap-2 text-xs">
+                          <span className="text-base">{u.icon}</span>
+                          <span className="text-gray-300 truncate flex-1">{u.name}</span>
+                          <span className="font-mono text-red-400">-{cas}</span>
+                          <span className={clsx('font-mono font-bold w-10 text-right', rate > 50 ? 'text-red-400' : rate > 25 ? 'text-amber-400' : 'text-emerald-400')}>
+                            {rate}%
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h6 className="text-xs text-gray-400 font-display uppercase tracking-wider mb-2">战斗事件</h6>
+              {skillEvents.length === 0 && formationEvents.length === 0 && surpriseEvents.length === 0 ? (
+                <p className="text-sm text-gray-600 italic">该回合无特殊事件</p>
+              ) : (
+                <div className="space-y-2">
+                  {skillEvents.length > 0 && (
+                    <div className="p-3 rounded-lg bg-magic-purple/10 border border-magic-purple/30">
+                      <p className="text-xs text-magic-purple font-display font-bold mb-1 flex items-center gap-1.5">
+                        <Star className="w-3.5 h-3.5" /> 技能使用
+                      </p>
+                      {skillEvents.map((e, i) => (
+                        <p key={i} className={clsx('text-sm', e.side === 'player' ? 'text-emerald-400' : 'text-red-400')}>
+                          {e.message}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {formationEvents.length > 0 && (
+                    <div className="p-3 rounded-lg bg-magic-blue/10 border border-magic-blue/30">
+                      <p className="text-xs text-magic-blue font-display font-bold mb-1 flex items-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5" /> 阵型变化
+                      </p>
+                      {formationEvents.map((e, i) => (
+                        <p key={i} className={clsx('text-sm', e.side === 'player' ? 'text-emerald-400' : 'text-red-400')}>
+                          {e.message}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {surpriseEvents.length > 0 && (
+                    <div className="p-3 rounded-lg bg-magic-flame/10 border border-magic-flame/30">
+                      <p className="text-xs text-magic-flame font-display font-bold mb-1 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5" /> 奇袭效果
+                      </p>
+                      {surpriseEvents.map((e, i) => (
+                        <p key={i} className={clsx('text-sm', e.side === 'player' ? 'text-emerald-400' : 'text-red-400')}>
+                          {e.message}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h6 className="text-xs text-gray-400 font-display uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-magic-gold" /> 关键转折回合
+              </h6>
+              <div className="flex flex-wrap gap-2">
+                {keyTurningPoints.map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setSelectedTurn(t)}
+                    className={clsx(
+                      'px-3 py-1.5 rounded-lg text-sm font-display font-bold border-2 transition-all',
+                      t === selectedTurn
+                        ? 'bg-magic-gold/20 border-magic-gold text-magic-gold shadow-gold-glow'
+                        : 'bg-magic-gold/5 border-magic-gold/30 text-magic-goldLight hover:bg-magic-gold/10'
+                    )}
+                  >
+                    ⚡ 回合 {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
 
 // Avoid unused warning
 export { };

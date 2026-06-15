@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trophy, Crown, Sword, TrendingUp, TrendingDown, Minus, Users,
-  Award, Coins, ChevronUp, ChevronDown, Star, Target, Shield, Eye
+  Award, Coins, ChevronUp, ChevronDown, Star, Target, Shield, Eye, Activity
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -28,12 +28,30 @@ export default function RankingPage() {
 
   const [tab, setTab] = useState<Tab>('power');
   const [hovered, setHovered] = useState<string | null>(null);
+  const myRankRef = useRef<HTMLDivElement>(null);
 
   const activeData = ranking[tab];
   const config = tabConfig[tab];
 
   const myRank = activeData.find(r => r.id === legion.id);
+  const myIndex = activeData.findIndex(r => r.id === legion.id);
+  const nextRank = myIndex > 0 ? activeData[myIndex - 1] : null;
+  const gapToNext = nextRank ? nextRank.value - (myRank?.value || 0) : 0;
   const totalParticipants = 2500;
+
+  const recentRankChanges = [
+    { week: '本周', change: myRank?.change || 0 },
+    { week: '上周', change: Math.floor(Math.random() * 4) - 1 },
+    { week: '两周前', change: Math.floor(Math.random() * 6) - 2 },
+  ];
+
+  useEffect(() => {
+    if (myRankRef.current) {
+      setTimeout(() => {
+        myRankRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  }, [tab]);
 
   return (
     <div className="space-y-6">
@@ -93,6 +111,7 @@ export default function RankingPage() {
               return (
                 <AnimatePresence key={entry.id}>
                   <motion.div
+                    ref={isMe ? myRankRef : undefined}
                     layout
                     initial={{ opacity: 0, x: -12 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -291,17 +310,48 @@ export default function RankingPage() {
             <div className="mt-4 p-4 rounded-xl bg-magic-panel/50 border border-magic-border">
               <p className="text-xs text-gray-400 mb-2 flex items-center gap-2">
                 <Target className="w-3.5 h-3.5 text-magic-gold" />
-                距离下一排名
+                距离上一名
+                {nextRank && <span className="ml-auto text-magic-goldLight font-mono">#{nextRank.rank} {nextRank.name}</span>}
               </p>
-              <ProgressBar
-                value={(myRank?.value || legion.totalPower) - 20000}
-                max={myRank?.value || legion.totalPower}
-                color="gold"
-                label="积分差距"
-              />
-              <p className="text-xs mt-2 text-gray-400 text-right">
-                还需 <span className="font-mono font-bold text-magic-gold">20,000</span> {config.unit}
+              {nextRank ? (
+                <>
+                  <ProgressBar
+                    value={(myRank?.value || 0)}
+                    max={nextRank.value}
+                    color="gold"
+                    label="差距"
+                  />
+                  <p className="text-xs mt-2 text-gray-400 text-right">
+                    还需 <span className="font-mono font-bold text-magic-gold">{gapToNext.toLocaleString()}</span> {config.unit}
+                  </p>
+                </>
+              ) : (
+                <div className="text-center py-3">
+                  <p className="font-display font-bold text-magic-gold text-lg">🏆 已登顶！</p>
+                  <p className="text-xs text-gray-500 mt-1">保持领先优势</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 p-4 rounded-xl bg-magic-panel/50 border border-magic-border">
+              <p className="text-xs text-gray-400 mb-3 flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5 text-magic-gold" />
+                近3周排名变化
               </p>
+              <div className="space-y-2">
+                {recentRankChanges.map(rc => (
+                  <div key={rc.week} className="flex items-center justify-between text-xs p-2 rounded-lg bg-magic-bg/60">
+                    <span className="text-gray-400">{rc.week}</span>
+                    <span className={clsx('font-mono font-bold flex items-center gap-1',
+                      rc.change > 0 ? 'text-emerald-400' : rc.change < 0 ? 'text-red-400' : 'text-gray-500'
+                    )}>
+                      {rc.change > 0 ? <><ChevronUp className="w-3 h-3" /> +{rc.change}</> :
+                       rc.change < 0 ? <><ChevronDown className="w-3 h-3" /> {rc.change}</> :
+                       <><Minus className="w-3 h-3" /> 持平</>}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </Card>
 

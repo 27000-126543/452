@@ -58,6 +58,9 @@ export default function DashboardPage() {
   }, [powerBreakdown, composition]);
 
   const powerRank = ranking.power.find(r => r.id === legion.id);
+  const powerRankIdx = ranking.power.findIndex(r => r.id === legion.id);
+  const nextPowerRank = powerRankIdx > 0 ? ranking.power[powerRankIdx - 1] : null;
+  const gapToNext = nextPowerRank ? nextPowerRank.value - (powerRank?.value || 0) : 0;
   const contestHours = 6;
   const contestMinutes = 42;
 
@@ -84,7 +87,7 @@ export default function DashboardPage() {
               <div className="text-right">
                 <p className="text-gray-400">全服排名</p>
                 <p className="font-display text-xl font-bold text-magic-gold">
-                  #{powerRank?.rank || '—'}
+                  #{powerRank?.rank ?? '—'}
                   {powerRank && powerRank.change > 0 && (
                     <span className="text-xs text-emerald-400 ml-1">▲{powerRank.change}</span>
                   )}
@@ -92,6 +95,11 @@ export default function DashboardPage() {
                     <span className="text-xs text-red-400 ml-1">▼{Math.abs(powerRank.change)}</span>
                   )}
                 </p>
+                {nextPowerRank && (
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    距#{nextPowerRank.rank}差 <span className="text-magic-gold font-mono font-bold">{gapToNext.toLocaleString()}</span>
+                  </p>
+                )}
               </div>
             </div>
           }
