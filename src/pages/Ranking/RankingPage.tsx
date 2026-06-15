@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trophy, Crown, Sword, TrendingUp, TrendingDown, Minus, Users,
@@ -39,11 +39,33 @@ export default function RankingPage() {
   const gapToNext = nextRank ? nextRank.value - (myRank?.value || 0) : 0;
   const totalParticipants = 2500;
 
-  const recentRankChanges = [
-    { week: '本周', change: myRank?.change || 0 },
-    { week: '上周', change: Math.floor(Math.random() * 4) - 1 },
-    { week: '两周前', change: Math.floor(Math.random() * 6) - 2 },
-  ];
+  const stableRankChangesRef = useRef<Record<Tab, { week: string; change: number }[]>>();
+  if (!stableRankChangesRef.current) {
+    const seeds: Record<Tab, number[]> = {
+      power: [2, 1, -1],
+      points: [3, 0, -2],
+      contribution: [1, 2, 1],
+    };
+    const result: Record<Tab, { week: string; change: number }[]> = {} as any;
+    (['power', 'points', 'contribution'] as Tab[]).forEach(t => {
+      result[t] = [
+        { week: '本周', change: 0 },
+        { week: '上周', change: seeds[t][1] },
+        { week: '两周前', change: seeds[t][2] },
+      ];
+    });
+    stableRankChangesRef.current = result;
+  }
+
+  const recentRankChanges = useMemo(() => {
+    const base = stableRankChangesRef.current![tab];
+    const thisWeekChange = myRank?.change ?? base[0].change;
+    return [
+      { ...base[0], change: thisWeekChange },
+      base[1],
+      base[2],
+    ];
+  }, [tab, myRank?.change]);
 
   useEffect(() => {
     if (myRankRef.current) {

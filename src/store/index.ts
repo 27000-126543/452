@@ -569,6 +569,7 @@ export const useMarketStore = create<MarketState>()(
       incrementViews: (orderId) =>
         set((s) => ({
           orders: s.orders.map(o => o.id === orderId ? { ...o, views: (o.views || 0) + 1 } : o),
+          myListings: s.myListings.map(o => o.id === orderId ? { ...o, views: (o.views || 0) + 1 } : o),
         })),
       refreshOrders: () => {
         const extraOrders: TradeOrder[] = [

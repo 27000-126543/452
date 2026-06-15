@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Store, Scroll, FileSignature, Package, Coins, TrendingUp, TrendingDown,
@@ -44,6 +44,16 @@ export default function MarketPage() {
   const addNews = useContentStore(s => s.addNews);
   const setMobilization = useGlobalStore(s => s.setMobilization);
 
+  const viewedDetailRef = useRef<Set<string>>(new Set());
+  const viewedCategoryRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!expandedOrder) return;
+    if (viewedDetailRef.current.has(expandedOrder)) return;
+    viewedDetailRef.current.add(expandedOrder);
+    incrementViews(expandedOrder);
+  }, [expandedOrder, incrementViews]);
+
   const itemTypeMap = {
     blueprints: 'blueprint' as const,
     contracts: 'contract' as const,
@@ -77,6 +87,15 @@ export default function MarketPage() {
     }
     return list;
   }, [orders, myListings, tab, sortBy, rarityFilter, search]);
+
+  useEffect(() => {
+    if (!['blueprints', 'contracts', 'materials'].includes(tab)) return;
+    activeOrders.forEach(order => {
+      if (viewedCategoryRef.current.has(order.id)) return;
+      viewedCategoryRef.current.add(order.id);
+      incrementViews(order.id);
+    });
+  }, [tab, activeOrders, incrementViews, viewedCategoryRef]);
 
   const marketTrends = useMemo(() => {
     const rarityNames: Rarity[] = ['legendary', 'epic', 'rare', 'uncommon', 'common'];

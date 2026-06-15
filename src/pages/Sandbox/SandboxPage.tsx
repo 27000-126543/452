@@ -284,7 +284,14 @@ export default function SandboxPage() {
                               delete next[key];
                               return next;
                             }
-                            return { ...prev, [key]: { unitIndex, coord: { q: cell.coord.q, r: cell.coord.r } } };
+                            const next: Record<string, DeployedUnit> = {};
+                            Object.entries(prev).forEach(([k, v]) => {
+                              if (v.unitIndex !== unitIndex) {
+                                next[k] = v;
+                              }
+                            });
+                            next[key] = { unitIndex, coord: { q: cell.coord.q, r: cell.coord.r } };
+                            return next;
                           });
                         }}
                         className={clsx(
