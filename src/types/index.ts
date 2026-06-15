@@ -23,6 +23,7 @@ export interface BannerConfig {
   primary: string;
   secondary: string;
   emblem: string;
+  name?: string;
 }
 
 export interface LegionMember {
@@ -286,6 +287,8 @@ export interface BattleState {
   startTime: number;
   lastUpdate: number;
   rewards: BattleRewards | null;
+  favorited?: boolean;
+  notes?: string;
 }
 
 export interface BattleRewards {
@@ -334,6 +337,7 @@ export interface TradeOrder {
   bidHistory: BidEntry[];
   isAuction: boolean;
   views: number;
+  viewSources?: { detail: number; category: number };
   listingHistory: ListingEvent[];
 }
 

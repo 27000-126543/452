@@ -51,7 +51,7 @@ export default function MarketPage() {
     if (!expandedOrder) return;
     if (viewedDetailRef.current.has(expandedOrder)) return;
     viewedDetailRef.current.add(expandedOrder);
-    incrementViews(expandedOrder);
+    incrementViews(expandedOrder, 'detail');
   }, [expandedOrder, incrementViews]);
 
   const itemTypeMap = {
@@ -93,7 +93,7 @@ export default function MarketPage() {
     activeOrders.forEach(order => {
       if (viewedCategoryRef.current.has(order.id)) return;
       viewedCategoryRef.current.add(order.id);
-      incrementViews(order.id);
+      incrementViews(order.id, 'category');
     });
   }, [tab, activeOrders, incrementViews, viewedCategoryRef]);
 
@@ -181,6 +181,7 @@ export default function MarketPage() {
       bidHistory: [],
       isAuction: data.isAuction,
       views: 0,
+      viewSources: { detail: 0, category: 0 },
       listingHistory: [{ type: 'listed', timestamp: now, detail: `${formatGold(data.price)} 手续费${formatGold(listingFee)}` }],
     };
     addOrder(order);
@@ -627,6 +628,19 @@ function MyStallPanel({ myListings, playerGold, onReprice, onDelist, onListNew }
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState('');
   const [historyId, setHistoryId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'time-desc' | 'views-desc' | 'bids-desc' | 'time-left'>('time-desc');
+
+  const sortedListings = useMemo(() => {
+    return [...myListings].sort((a, b) => {
+      switch (sortBy) {
+        case 'views-desc': return (b.views || 0) - (a.views || 0);
+        case 'bids-desc': return b.bidHistory.length - a.bidHistory.length;
+        case 'time-left': return (b.expiresAt - b.listedAt) - (a.expiresAt - a.listedAt);
+        case 'time-desc':
+        default: return b.listedAt - a.listedAt;
+      }
+    });
+  }, [myListings, sortBy]);
 
   const activeListings = myListings.filter(o => o.status === 'active');
   const closedListings = myListings.filter(o => o.status !== 'active');
@@ -676,14 +690,38 @@ function MyStallPanel({ myListings, playerGold, onReprice, onDelist, onListNew }
         </div>
       </div>
 
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1.5 border border-magic-border rounded-lg p-1 bg-magic-panel/40">
+          {[
+            { k: 'time-desc', label: '最新上架' },
+            { k: 'views-desc', label: '浏览最多' },
+            { k: 'bids-desc', label: '出价最多' },
+            { k: 'time-left', label: '剩余时间' },
+          ].map(s => (
+            <button key={s.k}
+              onClick={() => setSortBy(s.k as any)}
+              className={clsx(
+                'px-3 py-1 rounded text-xs font-display font-bold transition-all',
+                sortBy === s.k ? 'bg-magic-gold/20 text-magic-gold' : 'text-gray-400 hover:text-gray-200'
+              )}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500">共 {myListings.length} 件商品</p>
+      </div>
+
       <div className="space-y-3">
-        {myListings.map(order => {
+        {sortedListings.map(order => {
           const isActive = order.status === 'active';
           const isEditing = editingId === order.id;
           const showHistory = historyId === order.id;
           const priceRange = calculatePriceRange(order.itemType, order.itemData.rarity);
           const topBid = order.bidHistory.length > 0 ? Math.max(...order.bidHistory.map(b => b.amount)) : 0;
           const netRevenue = order.price - (order.listingFee || 0);
+          const viewSrc = order.viewSources || { detail: 0, category: 0 };
+          const totalSrc = Math.max(1, viewSrc.detail + viewSrc.category);
+          const detailPct = (viewSrc.detail / totalSrc) * 100;
 
           return (
             <div key={order.id} className={clsx(
@@ -708,8 +746,21 @@ function MyStallPanel({ myListings, playerGold, onReprice, onDelist, onListNew }
                     {order.status === 'expired' && <Badge variant="warning">已过期</Badge>}
                     {isActive && <Badge variant="info">在售</Badge>}
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-gray-400">
-                    <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {order.views || 0}次浏览</span>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400">
+                    <span className="flex items-center gap-1">
+                      <Eye className="w-3 h-3" />
+                      <span className="font-mono text-gray-200">{order.views || 0}</span>
+                      <span className="text-gray-600">次浏览</span>
+                    </span>
+                    {(viewSrc.detail > 0 || viewSrc.category > 0) && (
+                      <div className="flex items-center gap-1.5">
+                        <div className="relative w-20 h-2 rounded-full overflow-hidden bg-gray-700">
+                          <div className="absolute top-0 bottom-0 left-0 bg-sky-500/80" style={{ width: `${detailPct}%` }} />
+                        </div>
+                        <span className="text-sky-400 font-mono text-[10px]">详情{viewSrc.detail}</span>
+                        <span className="text-emerald-400 font-mono text-[10px]">分类{viewSrc.category}</span>
+                      </div>
+                    )}
                     {order.bidHistory.length > 0 && <span className="flex items-center gap-1"><Gavel className="w-3 h-3 text-magic-gold" /> {order.bidHistory.length}次出价 最高{formatGold(topBid)}</span>}
                     <span>预计净收 <span className="font-mono text-emerald-400 font-bold">{formatGold(netRevenue)}</span></span>
                     {order.listingFee && order.listingFee > 0 && <span>手续费 <span className="font-mono text-red-300">{formatGold(order.listingFee)}</span></span>}
@@ -782,49 +833,80 @@ function MyStallPanel({ myListings, playerGold, onReprice, onDelist, onListNew }
                 </div>
               )}
 
-              {showHistory && order.listingHistory && order.listingHistory.length > 0 && (
-                <div className="px-4 pb-3">
-                  <div className="p-3 rounded-lg bg-magic-bg/50 border border-magic-border/50 space-y-1.5">
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wider font-display mb-1">操作历史</p>
-                    {[...order.listingHistory].reverse().map((evt, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span className={clsx(
-                          'w-2 h-2 rounded-full shrink-0',
-                          evt.type === 'listed' && 'bg-emerald-400',
-                          evt.type === 'repriced' && 'bg-magic-gold',
-                          evt.type === 'delisted' && 'bg-red-400',
-                          evt.type === 'sold' && 'bg-sky-400',
-                          evt.type === 'expired' && 'bg-gray-400',
-                        )} />
-                        <span className="text-gray-400 font-mono">{new Date(evt.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                        <span className={clsx(
-                          'font-semibold',
-                          evt.type === 'listed' && 'text-emerald-300',
-                          evt.type === 'repriced' && 'text-magic-gold',
-                          evt.type === 'delisted' && 'text-red-300',
-                          evt.type === 'sold' && 'text-sky-300',
-                          evt.type === 'expired' && 'text-gray-400',
-                        )}>
-                          {evt.type === 'listed' ? '上架' : evt.type === 'repriced' ? '改价' : evt.type === 'delisted' ? '下架' : evt.type === 'sold' ? '售出' : '过期'}
-                        </span>
-                        {evt.detail && <span className="text-gray-500">— {evt.detail}</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {showHistory && (
+                <div className="px-4 pb-3 space-y-2">
+                  {order.listingHistory && order.listingHistory.length > 0 && (
+                    <div className="p-3 rounded-lg bg-magic-bg/50 border border-magic-border/50 space-y-1.5">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider font-display mb-1">操作历史</p>
+                      {[...order.listingHistory].reverse().map((evt, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span className={clsx(
+                            'w-2 h-2 rounded-full shrink-0',
+                            evt.type === 'listed' && 'bg-emerald-400',
+                            evt.type === 'repriced' && 'bg-magic-gold',
+                            evt.type === 'delisted' && 'bg-red-400',
+                            evt.type === 'sold' && 'bg-sky-400',
+                            evt.type === 'expired' && 'bg-gray-400',
+                          )} />
+                          <span className="text-gray-400 font-mono">{new Date(evt.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className={clsx(
+                            'font-semibold',
+                            evt.type === 'listed' && 'text-emerald-300',
+                            evt.type === 'repriced' && 'text-magic-gold',
+                            evt.type === 'delisted' && 'text-red-300',
+                            evt.type === 'sold' && 'text-sky-300',
+                            evt.type === 'expired' && 'text-gray-400',
+                          )}>
+                            {evt.type === 'listed' ? '上架' : evt.type === 'repriced' ? '改价' : evt.type === 'delisted' ? '下架' : evt.type === 'sold' ? '售出' : '过期'}
+                          </span>
+                          {evt.detail && <span className="text-gray-500">— {evt.detail}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-              {showHistory && order.bidHistory && order.bidHistory.length > 0 && (
-                <div className="px-4 pb-3">
-                  <div className="p-3 rounded-lg bg-magic-bg/50 border border-magic-border/50 space-y-1">
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wider font-display mb-1">出价记录</p>
-                    {[...order.bidHistory].reverse().slice(0, 8).map((b, i) => (
-                      <div key={i} className="flex items-center justify-between text-xs p-1.5 rounded bg-magic-panel/40">
-                        <span className="text-gray-400">{b.bidderName}</span>
-                        <span className="font-mono text-magic-gold font-bold">{formatGold(b.amount)}</span>
+                  {(viewSrc.detail > 0 || viewSrc.category > 0 || (order.views || 0) > 0) && (
+                    <div className="p-3 rounded-lg bg-magic-bg/50 border border-magic-border/50">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider font-display mb-2">经营统计</p>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="p-2 rounded-lg bg-magic-panel/60 text-center">
+                          <p className="text-gray-500">总浏览</p>
+                          <p className="font-mono font-bold text-sky-400 text-lg">{order.views || 0}</p>
+                        </div>
+                        <div className="p-2 rounded-lg bg-magic-panel/60 text-center">
+                          <p className="text-gray-500">详情来源</p>
+                          <p className="font-mono font-bold text-magic-blue text-lg">{viewSrc.detail}</p>
+                        </div>
+                        <div className="p-2 rounded-lg bg-magic-panel/60 text-center">
+                          <p className="text-gray-500">分类来源</p>
+                          <p className="font-mono font-bold text-emerald-400 text-lg">{viewSrc.category}</p>
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                      {order.bidHistory.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-magic-border/50">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-500">出价次数 / 最高价</span>
+                            <span>
+                              <span className="font-mono text-magic-gold font-bold mr-2">{order.bidHistory.length}次</span>
+                              <span className="font-mono text-emerald-400 font-bold">{formatGold(topBid)}</span>
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {order.bidHistory && order.bidHistory.length > 0 && (
+                    <div className="p-3 rounded-lg bg-magic-bg/50 border border-magic-border/50 space-y-1">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider font-display mb-1">出价记录</p>
+                      {[...order.bidHistory].reverse().slice(0, 8).map((b, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs p-1.5 rounded bg-magic-panel/40">
+                          <span className="text-gray-400">{b.bidderName}</span>
+                          <span className="font-mono text-magic-gold font-bold">{formatGold(b.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

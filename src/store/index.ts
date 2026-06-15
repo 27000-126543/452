@@ -337,6 +337,8 @@ interface BattleStateStore {
   updateBattle: (battle: BattleState) => void;
   setMatchmakingTicket: (ticket: MatchmakingTicket | null) => void;
   addBattleToHistory: (battle: BattleState) => void;
+  toggleFavoriteBattle: (battleId: string) => void;
+  updateBattleNotes: (battleId: string, notes: string) => void;
   activateSurpriseAttack: () => void;
   useSkill: (skillId: string) => void;
   changeFormation: (formationType: 'offensive' | 'defensive' | 'balanced') => void;
@@ -352,8 +354,33 @@ export const useBattleStore = create<BattleStateStore>()(
       updateBattle: (battle) => set({ currentBattle: battle }),
       setMatchmakingTicket: (ticket) => set({ matchmakingTicket: ticket }),
       addBattleToHistory: (battle) =>
+        set((s) => {
+          const existing = s.battleHistory.find(b => b.id === battle.id);
+          const toSave = existing
+            ? { ...battle, favorited: existing.favorited, notes: existing.notes }
+            : battle;
+          const filtered = s.battleHistory.filter(b => b.id !== battle.id);
+          return {
+            battleHistory: [toSave, ...filtered].slice(0, 50),
+          };
+        }),
+      toggleFavoriteBattle: (battleId) =>
         set((s) => ({
-          battleHistory: [battle, ...s.battleHistory].slice(0, 50),
+          battleHistory: s.battleHistory.map(b =>
+            b.id === battleId ? { ...b, favorited: !b.favorited } : b
+          ),
+          currentBattle: s.currentBattle?.id === battleId
+            ? { ...s.currentBattle, favorited: !s.currentBattle.favorited }
+            : s.currentBattle,
+        })),
+      updateBattleNotes: (battleId, notes) =>
+        set((s) => ({
+          battleHistory: s.battleHistory.map(b =>
+            b.id === battleId ? { ...b, notes } : b
+          ),
+          currentBattle: s.currentBattle?.id === battleId
+            ? { ...s.currentBattle, notes }
+            : s.currentBattle,
         })),
       activateSurpriseAttack: () =>
         set((s) => {
@@ -361,14 +388,35 @@ export const useBattleStore = create<BattleStateStore>()(
           if ((s.currentBattle.playerArmy.tacticalCooldowns?.['surprise'] || 0) > 0) return s;
           const deployed = Math.min(200, Math.max(100, Math.floor(s.currentBattle.playerArmy.surpriseTroops / 2)));
           const damage = deployed * 15;
+          const now = Date.now();
+          const turn = s.currentBattle.currentTurn;
+          const extraLogs: any[] = [];
           const updatedEnemyUnits = s.currentBattle.enemyArmy.units.map(u => {
             const casualties = Math.min(u.currentCount, Math.floor(damage / s.currentBattle.enemyArmy.units.length / 10));
+            if (casualties > 0) {
+              extraLogs.push({
+                turn,
+                timestamp: now,
+                type: 'casualty',
+                side: 'player',
+                message: `🎯 奇袭造成 ${u.icon} ${u.name} ${casualties} 人伤亡！`,
+                data: { attacker: 'surprise', target: u.unitId, casualties },
+              });
+            }
             return {
               ...u,
               currentCount: Math.max(0, u.currentCount - casualties),
               casualties: u.casualties + casualties,
               morale: Math.max(40, u.morale - 8),
             };
+          });
+          extraLogs.push({
+            turn,
+            timestamp: now,
+            type: 'surprise',
+            side: 'player',
+            message: `🎯 奇袭部队出击！派遣${deployed}人造成敌方混乱，大量伤亡！`,
+            data: { deployed, damage },
           });
           return {
             currentBattle: {
@@ -379,13 +427,7 @@ export const useBattleStore = create<BattleStateStore>()(
                 tacticalCooldowns: { ...(s.currentBattle.playerArmy.tacticalCooldowns || {}), surprise: 3 },
               },
               enemyArmy: { ...s.currentBattle.enemyArmy, units: updatedEnemyUnits },
-              log: [...s.currentBattle.log, {
-                turn: s.currentBattle.currentTurn,
-                timestamp: Date.now(),
-                type: 'surprise',
-                side: 'player',
-                message: `🎯 奇袭部队出击！派遣${deployed}人造成敌方混乱，大量伤亡！`,
-              }],
+              log: [...s.currentBattle.log, ...extraLogs],
             },
           };
         }),
@@ -470,7 +512,7 @@ interface MarketState {
   placeBid: (orderId: string, bidderId: string, bidderName: string, amount: number) => boolean;
   repriceOrder: (orderId: string, newPrice: number, newRange: [number, number]) => void;
   delistOrder: (orderId: string) => void;
-  incrementViews: (orderId: string) => void;
+  incrementViews: (orderId: string, source?: 'detail' | 'category') => void;
   refreshOrders: () => void;
 }
 
@@ -566,10 +608,26 @@ export const useMarketStore = create<MarketState>()(
               : o
           ),
         })),
-      incrementViews: (orderId) =>
+      incrementViews: (orderId, source = 'category') =>
         set((s) => ({
-          orders: s.orders.map(o => o.id === orderId ? { ...o, views: (o.views || 0) + 1 } : o),
-          myListings: s.myListings.map(o => o.id === orderId ? { ...o, views: (o.views || 0) + 1 } : o),
+          orders: s.orders.map(o => {
+            if (o.id !== orderId) return o;
+            const src = o.viewSources || { detail: 0, category: 0 };
+            return {
+              ...o,
+              views: (o.views || 0) + 1,
+              viewSources: { ...src, [source]: src[source] + 1 },
+            };
+          }),
+          myListings: s.myListings.map(o => {
+            if (o.id !== orderId) return o;
+            const src = o.viewSources || { detail: 0, category: 0 };
+            return {
+              ...o,
+              views: (o.views || 0) + 1,
+              viewSources: { ...src, [source]: src[source] + 1 },
+            };
+          }),
         })),
       refreshOrders: () => {
         const extraOrders: TradeOrder[] = [

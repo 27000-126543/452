@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Trophy, Users, Zap, Shield, Target, Clock, Swords, Crown, Star, Gift,
   Heart, AlertTriangle, Award, SkipForward, Crosshair, RefreshCw, TrendingUp,
-  Activity, ChevronLeft, ChevronRight
+  Activity, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck, Edit3, Check, Filter, Search
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Card from '@/components/ui/Card';
@@ -14,13 +14,14 @@ import { LineAreaChart } from '@/components/charts/Charts';
 import { useBattleStore, useArmyStore, usePlayerStore, useContentStore, useLegionStore, useGlobalStore } from '@/store';
 import { createBattle, simulateBattleRound, estimateWaitTime } from '@/engines/matchmaker';
 import { generateId, terrains, weathers, rarityColors } from '@/data/mockData';
-import type { RankTier, MatchmakingTicket, BattleState } from '@/types';
+import type { RankTier, MatchmakingTicket, BattleState, BattleLogEntry } from '@/types';
 import { clsx } from 'clsx';
 
 export default function ArenaPage() {
   const navigate = useNavigate();
   const { matchmakingTicket, setMatchmakingTicket, setCurrentBattle, currentBattle,
-    updateBattle, activateSurpriseAttack, useSkill, changeFormation, addBattleToHistory, battleHistory } = useBattleStore();
+    updateBattle, activateSurpriseAttack, useSkill, changeFormation, addBattleToHistory, battleHistory,
+    toggleFavoriteBattle, updateBattleNotes } = useBattleStore();
   const { composition, generals, units, formations } = useArmyStore();
   const player = usePlayerStore(s => s.player);
   const updatePoints = usePlayerStore(s => s.updateSeasonPoints);
@@ -33,6 +34,9 @@ export default function ArenaPage() {
   const [waitTime, setWaitTime] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
   const [replaySource, setReplaySource] = useState<'lobby' | 'result'>('lobby');
+  const [historyFilter, setHistoryFilter] = useState<{ onlyFavorites: boolean; outcome: 'all' | 'win' | 'lose' | 'draw'; opponentSearch: string }>(
+    { onlyFavorites: false, outcome: 'all', opponentSearch: '' }
+  );
 
   const general = generals.find(g => g.id === composition.generalId);
   const activeFormation = formations[0];
@@ -172,6 +176,20 @@ export default function ArenaPage() {
   const recentBattles = battleHistory.slice(0, 5);
   const winCount = battleHistory.filter(b => b.winner === 'player').length;
   const winRate = battleHistory.length > 0 ? Math.round(winCount / battleHistory.length * 100) : 0;
+
+  const filteredBattles = useMemo(() => {
+    return battleHistory.filter(b => {
+      if (historyFilter.onlyFavorites && !b.favorited) return false;
+      if (historyFilter.outcome !== 'all' && b.winner !== historyFilter.outcome) return false;
+      if (historyFilter.opponentSearch.trim()) {
+        const q = historyFilter.opponentSearch.trim().toLowerCase();
+        const enemyName = (b.enemyArmy.legionBanner?.name || '').toLowerCase();
+        const playerName = (b.playerArmy.legionBanner?.name || '').toLowerCase();
+        if (!enemyName.includes(q) && !playerName.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [battleHistory, historyFilter]);
 
   const winRateData = useMemo(() => {
     const days = ['一', '二', '三', '四', '五', '六', '日'];
@@ -318,20 +336,68 @@ export default function ArenaPage() {
               </div>
             </div>
 
-            <Card icon={<RefreshCw className="w-5 h-5" />} title="最近战绩" subtitle={`共${battleHistory.length}场，胜率${winRate}%`}>
-              {recentBattles.length === 0 ? (
+            <Card icon={<RefreshCw className="w-5 h-5" />}
+              title={<span className="flex items-center justify-between">
+                最近战绩
+                <Badge variant="info">{filteredBattles.length}/{battleHistory.length}场 · 胜率{winRate}%</Badge>
+              </span>}
+            >
+              <div className="mb-4 space-y-2">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Button
+                    size="sm"
+                    variant={historyFilter.onlyFavorites ? 'primary' : 'ghost'}
+                    icon={historyFilter.onlyFavorites
+                      ? <BookmarkCheck className="w-4 h-4 text-magic-gold" />
+                      : <Bookmark className="w-4 h-4" />}
+                    onClick={() => setHistoryFilter(f => ({ ...f, onlyFavorites: !f.onlyFavorites }))}
+                  >
+                    {historyFilter.onlyFavorites ? '已筛选收藏' : '只看收藏'}
+                  </Button>
+                  <div className="flex items-center gap-1 border border-magic-border rounded-lg p-1 bg-magic-panel/60">
+                    {(['all', 'win', 'lose', 'draw'] as const).map(o => (
+                      <button key={o}
+                        onClick={() => setHistoryFilter(f => ({ ...f, outcome: o }))}
+                        className={clsx(
+                          'px-3 py-1 rounded text-xs font-display font-bold transition-all',
+                          historyFilter.outcome === o
+                            ? o === 'win' ? 'bg-emerald-500/20 text-emerald-400'
+                              : o === 'lose' ? 'bg-red-500/20 text-red-400'
+                              : o === 'draw' ? 'bg-sky-500/20 text-sky-400'
+                              : 'bg-magic-gold/20 text-magic-gold'
+                            : 'text-gray-400 hover:text-gray-200'
+                        )}
+                      >
+                        {o === 'all' ? '全部' : o === 'win' ? '胜利' : o === 'lose' ? '失败' : '平局'}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="relative flex-1 min-w-[200px] ml-auto">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                    <input
+                      type="text"
+                      placeholder="搜索对手军团名称..."
+                      value={historyFilter.opponentSearch}
+                      onChange={e => setHistoryFilter(f => ({ ...f, opponentSearch: e.target.value }))}
+                      className="w-full pl-8 pr-3 py-1.5 bg-magic-panel/60 border border-magic-border rounded-lg text-sm outline-none focus:border-magic-gold/60 transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {filteredBattles.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <Swords className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p className="font-display">暂无对战记录，开始你的第一场战斗吧！</p>
+                  <p className="font-display">暂无符合条件的对战记录</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                  {recentBattles.map((b, i) => (
+                  {filteredBattles.map((b, i) => (
                     <motion.div
                       key={b.id}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05 }}
+                      transition={{ delay: i * 0.03 }}
                       className={clsx(
                         'p-4 rounded-xl border-2 relative overflow-hidden',
                         b.winner === 'player'
@@ -341,6 +407,11 @@ export default function ArenaPage() {
                           : 'bg-gradient-to-br from-red-900/30 to-magic-card border-red-500/40'
                       )}
                     >
+                      {b.favorited && (
+                        <div className="absolute top-2 right-2 z-10">
+                          <Star className="w-4 h-4 text-magic-gold fill-magic-gold drop-shadow-[0_0_4px_rgba(255,215,100,0.7)]" />
+                        </div>
+                      )}
                       <div className="flex items-center justify-between mb-2">
                         <Badge variant={b.winner === 'player' ? 'success' : b.winner === 'draw' ? 'info' : 'danger'}>
                           {b.winner === 'player' ? '胜利' : b.winner === 'draw' ? '平局' : '失败'}
@@ -352,14 +423,35 @@ export default function ArenaPage() {
                         <span className="font-display font-bold text-gray-400">VS</span>
                         <div className="text-2xl">{b.enemyArmy.legionBanner.emblem}</div>
                       </div>
+                      <div className="text-xs space-y-0.5 mb-2">
+                        <p className="text-emerald-400 truncate font-display">{b.playerArmy.legionBanner.name}</p>
+                        <p className="text-red-400 truncate font-display">
+                          {b.enemyArmy.legionBanner.name || '未知对手'}
+                        </p>
+                      </div>
                       <div className="text-xs space-y-0.5 mb-3">
                         <p className="text-magic-gold font-mono">积分 +{b.rewards?.points || 0}</p>
                         <p className="text-amber-400 font-mono">金币 +{b.rewards?.gold || 0}</p>
+                        {b.notes && <p className="text-gray-400 italic truncate">📝 {b.notes}</p>}
                       </div>
-                      <Button size="sm" variant="ghost" fullWidth icon={<Activity className="w-3.5 h-3.5" />}
-                        onClick={() => { setCurrentBattle(b); setReplaySource('lobby'); setMode('replay'); }}>
-                        复盘
-                      </Button>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <Button size="sm" variant="ghost" icon={<Activity className="w-3 h-3" />}
+                          onClick={() => {
+                            const battleFromHistory = useBattleStore.getState().battleHistory.find(x => x.id === b.id);
+                            setCurrentBattle(battleFromHistory || b);
+                            setReplaySource('lobby');
+                            setMode('replay');
+                          }}>
+                          复盘
+                        </Button>
+                        <Button size="sm" variant="ghost"
+                          icon={b.favorited
+                            ? <BookmarkCheck className="w-3 h-3 text-magic-gold" />
+                            : <Bookmark className="w-3 h-3" />}
+                          onClick={() => toggleFavoriteBattle(b.id)}>
+                          {b.favorited ? '已收藏' : '收藏'}
+                        </Button>
+                      </div>
                     </motion.div>
                   ))}
                 </div>
@@ -521,7 +613,13 @@ export default function ArenaPage() {
                 返回{replaySource === 'lobby' ? '大厅' : '结算'}
               </Button>
             </div>
-            <BattleReplayPanel battle={currentBattle} />
+            <BattleReplayPanel
+              battle={currentBattle}
+              favorited={!!currentBattle?.favorited}
+              notes={currentBattle?.notes || ''}
+              onToggleFavorite={() => currentBattle && toggleFavoriteBattle(currentBattle.id)}
+              onUpdateNotes={(v) => currentBattle && updateBattleNotes(currentBattle.id, v)}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -798,8 +896,16 @@ function BattleUnitsRow({ side, units }: { side: 'player' | 'enemy'; units: any[
 
 function TrendingUpIcon(props: any) { return <TrendingUp {...props} />; }
 
-function BattleReplayPanel({ battle }: { battle: BattleState }) {
+function BattleReplayPanel({ battle, favorited, notes, onToggleFavorite, onUpdateNotes }: {
+  battle: BattleState;
+  favorited: boolean;
+  notes: string;
+  onToggleFavorite: () => void;
+  onUpdateNotes: (v: string) => void;
+}) {
   const [selectedTurn, setSelectedTurn] = useState(1);
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState(notes);
   const totalTurns = Math.max(1, battle.currentTurn);
 
   const turnState = useMemo(() => {
@@ -807,11 +913,17 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
       ...u,
       currentCount: u.initialCount,
       casualties: 0,
+      baseAttack: u.attack,
+      baseDefense: u.defense,
+      turnCasualties: 0,
     }));
     const enemyUnits = battle.enemyArmy.units.map(u => ({
       ...u,
       currentCount: u.initialCount,
       casualties: 0,
+      baseAttack: u.attack,
+      baseDefense: u.defense,
+      turnCasualties: 0,
     }));
 
     const states: Array<{
@@ -820,39 +932,81 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
       playerIntegrity: number;
       enemyIntegrity: number;
       totalCasualties: number;
+      affectedUnits: { side: 'player' | 'enemy'; unitId: string; name: string; icon: string; casualties: number }[];
+      playerCooldowns: { skill: Record<string, number>; tactical: Record<string, number> };
+      enemyCooldowns: { skill: Record<string, number>; tactical: Record<string, number> };
     }> = [];
 
-    const calcPower = (units: { currentCount: number; attack: number; defense: number; morale: number }[]) =>
-      units.reduce((s, u) => s + u.currentCount * (u.attack + u.defense) * (u.morale / 100), 0);
+    const calcPower = (units: { currentCount: number; baseAttack: number; baseDefense: number; morale: number }[]) =>
+      units.reduce((s, u) => s + u.currentCount * (u.baseAttack + u.baseDefense) * (u.morale / 100), 0);
+
+    const playerSkillCd: Record<string, number> = {};
+    const enemySkillCd: Record<string, number> = {};
+    const playerTacticalCd: Record<string, number> = {};
+    const enemyTacticalCd: Record<string, number> = {};
 
     for (let t = 1; t <= totalTurns; t++) {
-      const entries = battle.log.filter(e => e.turn === t && e.type === 'casualty');
+      playerUnits.forEach(u => { u.turnCasualties = 0; });
+      enemyUnits.forEach(u => { u.turnCasualties = 0; });
+      const affected: typeof states[number]['affectedUnits'] = [];
       let turnTotalCas = 0;
+
+      const entries = battle.log.filter(e => e.turn === t);
+
       entries.forEach(e => {
-        const targetId = (e.data as any)?.target;
-        const amount = (e.data as any)?.casualties || 0;
-        turnTotalCas += amount;
-        if (e.side === 'player') {
-          const eu = enemyUnits.find(u => u.unitId === targetId);
-          if (eu) {
-            const actual = Math.min(eu.currentCount, amount);
-            eu.currentCount = Math.max(0, eu.currentCount - actual);
-            eu.casualties += actual;
+        if (e.type === 'casualty') {
+          const targetId = (e.data as any)?.target;
+          const amount = (e.data as any)?.casualties || 0;
+          turnTotalCas += amount;
+          if (e.side === 'player') {
+            const eu = enemyUnits.find(u => u.unitId === targetId);
+            if (eu) {
+              const actual = Math.min(eu.currentCount, amount);
+              eu.currentCount = Math.max(0, eu.currentCount - actual);
+              eu.casualties += actual;
+              eu.turnCasualties += actual;
+              affected.push({ side: 'player', unitId: eu.unitId, name: eu.name, icon: eu.icon, casualties: actual });
+            }
+          } else if (e.side === 'enemy') {
+            const pu = playerUnits.find(u => u.unitId === targetId);
+            if (pu) {
+              const actual = Math.min(pu.currentCount, amount);
+              pu.currentCount = Math.max(0, pu.currentCount - actual);
+              pu.casualties += actual;
+              pu.turnCasualties += actual;
+              affected.push({ side: 'enemy', unitId: pu.unitId, name: pu.name, icon: pu.icon, casualties: actual });
+            }
           }
-        } else if (e.side === 'enemy') {
-          const pu = playerUnits.find(u => u.unitId === targetId);
-          if (pu) {
-            const actual = Math.min(pu.currentCount, amount);
-            pu.currentCount = Math.max(0, pu.currentCount - actual);
-            pu.casualties += actual;
+        }
+        if (e.type === 'skill') {
+          if (e.side === 'player') {
+            Object.keys(playerSkillCd).forEach(k => playerSkillCd[k] = Math.max(0, (playerSkillCd[k] || 0)));
+            playerSkillCd['战吼'] = 3;
+          } else if (e.side === 'enemy') {
+            enemySkillCd['战吼'] = 3;
           }
+        }
+        if (e.type === 'formation') {
+          if (e.side === 'player') playerTacticalCd['formation'] = 2;
+          else if (e.side === 'enemy') enemyTacticalCd['formation'] = 2;
+        }
+        if (e.type === 'surprise') {
+          if (e.side === 'player') playerTacticalCd['surprise'] = 3;
+          else if (e.side === 'enemy') enemyTacticalCd['surprise'] = 3;
         }
       });
 
+      // Cool down decay for this turn's end
+      Object.keys(playerSkillCd).forEach(k => { if (playerSkillCd[k] > 0 && t > 1) playerSkillCd[k] = Math.max(0, playerSkillCd[k] - 1); });
+      Object.keys(enemySkillCd).forEach(k => { if (enemySkillCd[k] > 0 && t > 1) enemySkillCd[k] = Math.max(0, enemySkillCd[k] - 1); });
+      Object.keys(playerTacticalCd).forEach(k => { if (playerTacticalCd[k] > 0 && t > 1) playerTacticalCd[k] = Math.max(0, playerTacticalCd[k] - 1); });
+      Object.keys(enemyTacticalCd).forEach(k => { if (enemyTacticalCd[k] > 0 && t > 1) enemyTacticalCd[k] = Math.max(0, enemyTacticalCd[k] - 1); });
+
       const pp = calcPower(playerUnits);
       const ep = calcPower(enemyUnits);
-      const playerIntegrity = Math.max(20, 100 - Math.floor((1 - pp / (pp + ep + 1)) * 50));
-      const enemyIntegrity = Math.max(20, 100 - Math.floor((1 - ep / (pp + ep + 1)) * 50));
+      const totalP = pp + ep + 1;
+      const playerIntegrity = Math.max(20, 100 - Math.floor((1 - pp / totalP) * 50));
+      const enemyIntegrity = Math.max(20, 100 - Math.floor((1 - ep / totalP) * 50));
 
       states.push({
         playerUnits: playerUnits.map(u => ({ ...u })),
@@ -860,6 +1014,9 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
         playerIntegrity,
         enemyIntegrity,
         totalCasualties: turnTotalCas,
+        affectedUnits: affected,
+        playerCooldowns: { skill: { ...playerSkillCd }, tactical: { ...playerTacticalCd } },
+        enemyCooldowns: { skill: { ...enemySkillCd }, tactical: { ...enemyTacticalCd } },
       });
     }
 
@@ -869,10 +1026,34 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
   const currentState = turnState[selectedTurn - 1] || turnState[0];
   const turnLogEntries = useMemo(() =>
     battle.log.filter(e => e.turn === selectedTurn), [battle.log, selectedTurn]);
+  const allTurnsTimeline = useMemo(() => {
+    const result: Array<{
+      turn: number;
+      totalCasualties: number;
+      hasSkill: boolean;
+      hasFormation: boolean;
+      hasSurprise: boolean;
+      entries: BattleLogEntry[];
+    }> = [];
+    for (let t = 1; t <= totalTurns; t++) {
+      const entries = battle.log.filter(e => e.turn === t);
+      result.push({
+        turn: t,
+        totalCasualties: turnState[t - 1]?.totalCasualties || 0,
+        hasSkill: entries.some(e => e.type === 'skill'),
+        hasFormation: entries.some(e => e.type === 'formation'),
+        hasSurprise: entries.some(e => e.type === 'surprise'),
+        entries,
+      });
+    }
+    return result;
+  }, [battle.log, totalTurns, turnState]);
 
   const skillEvents = turnLogEntries.filter(e => e.type === 'skill');
   const formationEvents = turnLogEntries.filter(e => e.type === 'formation');
   const surpriseEvents = turnLogEntries.filter(e => e.type === 'surprise');
+  const moralEvents = turnLogEntries.filter(e => e.type === 'moral_change');
+  const systemEvents = turnLogEntries.filter(e => e.type === 'system');
 
   const keyTurningPoints = useMemo(() => {
     const turns: number[] = [];
@@ -882,93 +1063,182 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
     let firstSurpriseTurn: number | null = null;
 
     for (let t = 1; t <= totalTurns; t++) {
-      const entries = battle.log.filter(e => e.turn === t);
-      if (firstSkillTurn === null && entries.some(e => e.type === 'skill')) firstSkillTurn = t;
-      if (firstSurpriseTurn === null && entries.some(e => e.type === 'surprise')) firstSurpriseTurn = t;
       const cas = turnState[t - 1]?.totalCasualties || 0;
+      if (firstSkillTurn === null && allTurnsTimeline[t - 1]?.hasSkill) firstSkillTurn = t;
+      if (firstSurpriseTurn === null && allTurnsTimeline[t - 1]?.hasSurprise) firstSurpriseTurn = t;
       if (cas > maxCas) {
         maxCas = cas;
         maxCasTurn = t;
       }
     }
-
     if (firstSkillTurn) turns.push(firstSkillTurn);
     if (firstSurpriseTurn) turns.push(firstSurpriseTurn);
     if (!turns.includes(maxCasTurn) && maxCas > 0) turns.push(maxCasTurn);
     return turns.sort((a, b) => a - b);
-  }, [battle.log, totalTurns, turnState]);
+  }, [totalTurns, turnState, allTurnsTimeline]);
 
   const isKeyTurn = keyTurningPoints.includes(selectedTurn);
 
+  const eventIcon = (type: string) => {
+    switch (type) {
+      case 'skill': return <Star className="w-3.5 h-3.5 text-magic-purple" />;
+      case 'formation': return <Shield className="w-3.5 h-3.5 text-magic-blue" />;
+      case 'surprise': return <Zap className="w-3.5 h-3.5 text-magic-flame" />;
+      case 'casualty': return <Heart className="w-3.5 h-3.5 text-red-400" />;
+      case 'moral_change': return <TrendingUpIcon className="w-3.5 h-3.5 text-amber-400" />;
+      default: return <Activity className="w-3.5 h-3.5 text-gray-400" />;
+    }
+  };
+
   return (
     <div className="grid grid-cols-12 gap-6">
-      <div className="col-span-12 lg:col-span-4">
-        <Card icon={<Activity className="w-5 h-5" />} title="回合时间轴">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-400 font-display">回合</span>
-              <span className="font-mono text-2xl font-bold text-magic-gold">
-                {selectedTurn} <span className="text-sm text-gray-500">/ {totalTurns}</span>
-              </span>
+      <div className="col-span-12 lg:col-span-5 space-y-4">
+        <Card icon={<Activity className="w-5 h-5" />} title="完整战况时间线">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-1">
+                <input
+                  type="range"
+                  min={1}
+                  max={totalTurns}
+                  value={selectedTurn}
+                  onChange={e => setSelectedTurn(Number(e.target.value))}
+                  className="flex-1 accent-magic-gold"
+                />
+                <span className="font-mono text-xl font-bold text-magic-gold whitespace-nowrap">
+                  {selectedTurn}<span className="text-sm text-gray-500">/{totalTurns}</span>
+                </span>
+              </div>
             </div>
-
-            <input
-              type="range"
-              min={1}
-              max={totalTurns}
-              value={selectedTurn}
-              onChange={e => setSelectedTurn(Number(e.target.value))}
-              className="w-full accent-magic-gold"
-            />
-
-            <div className="flex items-center justify-between">
-              <Button size="sm" icon={<ChevronLeft className="w-4 h-4" />}
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" icon={<ChevronLeft className="w-3.5 h-3.5" />}
                 onClick={() => setSelectedTurn(Math.max(1, selectedTurn - 1))}
-                disabled={selectedTurn <= 1}>
-                上一回合
-              </Button>
-              <Button size="sm" icon={<ChevronRight className="w-4 h-4" />}
+                disabled={selectedTurn <= 1} />
+              <Button size="sm" icon={<ChevronRight className="w-3.5 h-3.5" />}
                 onClick={() => setSelectedTurn(Math.min(totalTurns, selectedTurn + 1))}
-                disabled={selectedTurn >= totalTurns}>
-                下一回合
-              </Button>
+                disabled={selectedTurn >= totalTurns} />
+              <div className="ml-auto flex gap-1 flex-wrap max-w-[60%] justify-end">
+                {keyTurningPoints.map(t => (
+                  <button key={t}
+                    onClick={() => setSelectedTurn(t)}
+                    className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-magic-gold/10 text-magic-gold border border-magic-gold/40 hover:bg-magic-gold/20 transition-colors">
+                    ⚡{t}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
-              {Array.from({ length: totalTurns }, (_, i) => i + 1).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setSelectedTurn(t)}
+            <div className="max-h-[540px] overflow-y-auto pr-2 space-y-2">
+              {allTurnsTimeline.map((tl, idx) => (
+                <div
+                  key={tl.turn}
+                  onClick={() => setSelectedTurn(tl.turn)}
                   className={clsx(
-                    'w-9 h-9 rounded-lg text-xs font-mono font-bold border transition-all',
-                    t === selectedTurn
-                      ? 'bg-magic-gold/30 border-magic-gold text-magic-gold shadow-gold-glow'
-                      : keyTurningPoints.includes(t)
-                        ? 'bg-magic-gold/10 border-magic-gold/40 text-magic-goldLight hover:bg-magic-gold/20'
-                        : 'bg-magic-panel/60 border-magic-border text-gray-400 hover:bg-magic-panel hover:border-magic-gold/30'
+                    'p-3 rounded-xl border-2 cursor-pointer transition-all',
+                    selectedTurn === tl.turn
+                      ? 'bg-magic-gold/10 border-magic-gold shadow-gold-glow'
+                      : keyTurningPoints.includes(tl.turn)
+                        ? 'bg-magic-panel/60 border-magic-gold/40 hover:bg-magic-panel'
+                        : 'bg-magic-panel/40 border-magic-border hover:bg-magic-panel hover:border-magic-gold/30'
                   )}
                 >
-                  {keyTurningPoints.includes(t) && <span className="mr-0.5">⚡</span>}
-                  {t}
-                </button>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className={clsx(
+                        'font-mono font-bold',
+                        selectedTurn === tl.turn ? 'text-magic-gold text-sm' : 'text-gray-400 text-xs'
+                      )}>回合 {tl.turn}</span>
+                      {keyTurningPoints.includes(tl.turn) && <span className="text-magic-gold">⚡</span>}
+                    </div>
+                    <span className={clsx(
+                      'text-xs font-mono font-bold',
+                      tl.totalCasualties > 200 ? 'text-red-400' : tl.totalCasualties > 50 ? 'text-amber-400' : 'text-gray-500'
+                    )}>伤亡 {tl.totalCasualties}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                    {tl.hasSkill && <span className="px-1.5 py-0.5 text-[10px] rounded bg-magic-purple/20 text-magic-purple font-bold flex items-center gap-1">{eventIcon('skill')}技能</span>}
+                    {tl.hasFormation && <span className="px-1.5 py-0.5 text-[10px] rounded bg-magic-blue/20 text-magic-blue font-bold flex items-center gap-1">{eventIcon('formation')}阵型</span>}
+                    {tl.hasSurprise && <span className="px-1.5 py-0.5 text-[10px] rounded bg-magic-flame/20 text-magic-flame font-bold flex items-center gap-1">{eventIcon('surprise')}奇袭</span>}
+                  </div>
+                  {selectedTurn === tl.turn && tl.entries.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-1 mt-2 pt-2 border-t border-magic-border/60 max-h-[220px] overflow-y-auto"
+                    >
+                      {tl.entries.filter(e => e.type !== 'attack').map((e, i) => (
+                        <div key={i}
+                          className={clsx(
+                            'flex items-start gap-2 text-xs p-1.5 rounded',
+                            e.side === 'player' ? 'bg-emerald-500/5' : e.side === 'enemy' ? 'bg-red-500/5' : 'bg-gray-500/5'
+                          )}
+                        >
+                          <div className="mt-0.5">{eventIcon(e.type)}</div>
+                          <div className="flex-1 min-w-0">
+                            <span className={clsx(
+                              'font-display font-bold mr-1',
+                              e.side === 'player' ? 'text-emerald-400' : e.side === 'enemy' ? 'text-red-400' : 'text-gray-400'
+                            )}>{e.side === 'player' ? '我方' : e.side === 'enemy' ? '敌方' : '系统'}</span>
+                            <span className="text-gray-300">{e.message}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </motion.div>
+                  )}
+                </div>
               ))}
             </div>
           </div>
         </Card>
       </div>
 
-      <div className="col-span-12 lg:col-span-8 space-y-4">
-        <Card className={clsx(isKeyTurn && 'border-2 border-magic-gold/60 shadow-gold-glow')}
+      <div className="col-span-12 lg:col-span-7 space-y-4">
+        <Card
+          className={clsx(isKeyTurn && 'border-2 border-magic-gold/60 shadow-gold-glow')}
           icon={<Swords className="w-5 h-5" />}
           title={
-            <span className="flex items-center gap-2">
-              回合 {selectedTurn} 战况
-              {isKeyTurn && (
-                <Badge variant="warning"><Zap className="w-3 h-3 mr-1" />关键转折</Badge>
-              )}
+            <span className="flex items-center justify-between gap-3 flex-1">
+              <span className="flex items-center gap-2">
+                回合 {selectedTurn} 战况
+                {isKeyTurn && <Badge variant="warning"><Zap className="w-3 h-3 mr-1" />关键转折</Badge>}
+              </span>
+              <span className="flex items-center gap-2">
+                <Button size="sm"
+                  variant={favorited ? 'primary' : 'ghost'}
+                  icon={favorited
+                    ? <BookmarkCheck className="w-4 h-4 text-magic-gold" />
+                    : <Bookmark className="w-4 h-4" />}
+                  onClick={onToggleFavorite}>
+                  {favorited ? '已收藏' : '收藏'}
+                </Button>
+                {editingNotes ? (
+                  <div className="flex items-center gap-1.5">
+                    <input value={notesDraft}
+                      onChange={e => setNotesDraft(e.target.value)}
+                      onBlur={() => { onUpdateNotes(notesDraft); setEditingNotes(false); }}
+                      placeholder="输入备注..."
+                      autoFocus
+                      className="w-40 px-2 py-1 text-xs bg-magic-panel border border-magic-gold/50 rounded outline-none font-mono text-magic-gold" />
+                    <Button size="sm" icon={<Check className="w-3.5 h-3.5" />}
+                      onClick={() => { onUpdateNotes(notesDraft); setEditingNotes(false); }} />
+                  </div>
+                ) : (
+                  <Button size="sm" variant="ghost" icon={<Edit3 className="w-4 h-4" />}
+                    onClick={() => { setNotesDraft(notes); setEditingNotes(true); }}>
+                    {notes ? '编辑备注' : '添加备注'}
+                  </Button>
+                )}
+              </span>
             </span>
           }
         >
+          {notes && !editingNotes && (
+            <div className="mb-4 p-3 rounded-lg bg-magic-gold/5 border border-magic-gold/30">
+              <p className="text-xs text-gray-400 font-display font-bold mb-1">📝 我的备注</p>
+              <p className="text-sm text-magic-goldLight whitespace-pre-wrap">{notes}</p>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <h6 className="text-xs text-gray-400 font-display uppercase tracking-wider mb-2">阵型完整度</h6>
@@ -990,6 +1260,36 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
                     color={currentState.enemyIntegrity > 60 ? 'green' : currentState.enemyIntegrity > 30 ? 'gold' : 'red'} />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3 mt-2 text-[11px]">
+                <div className="p-2 rounded-lg bg-magic-panel/60 border border-magic-border space-y-0.5">
+                  <p className="text-gray-500 font-display">我方冷却</p>
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(currentState.playerCooldowns.skill).filter(([, v]) => v > 0).map(([k, v]) => (
+                      <span key={`sk-${k}`} className="px-1.5 py-0.5 rounded bg-magic-purple/20 text-magic-purple font-mono">✨{k}·{v}T</span>
+                    ))}
+                    {Object.entries(currentState.playerCooldowns.tactical).filter(([, v]) => v > 0).map(([k, v]) => (
+                      <span key={`tc-${k}`} className="px-1.5 py-0.5 rounded bg-magic-blue/20 text-magic-blue font-mono">🛡{k === 'formation' ? '阵型' : '奇袭'}·{v}T</span>
+                    ))}
+                    {Object.keys(currentState.playerCooldowns.skill).length === 0 && Object.keys(currentState.playerCooldowns.tactical).length === 0 && (
+                      <span className="text-gray-600">无</span>
+                    )}
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-magic-panel/60 border border-magic-border space-y-0.5">
+                  <p className="text-gray-500 font-display">敌方冷却</p>
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(currentState.enemyCooldowns.skill).filter(([, v]) => v > 0).map(([k, v]) => (
+                      <span key={`sk-${k}`} className="px-1.5 py-0.5 rounded bg-magic-purple/20 text-magic-purple font-mono">✨{k}·{v}T</span>
+                    ))}
+                    {Object.entries(currentState.enemyCooldowns.tactical).filter(([, v]) => v > 0).map(([k, v]) => (
+                      <span key={`tc-${k}`} className="px-1.5 py-0.5 rounded bg-magic-blue/20 text-magic-blue font-mono">🛡{k === 'formation' ? '阵型' : '奇袭'}·{v}T</span>
+                    ))}
+                    {Object.keys(currentState.enemyCooldowns.skill).length === 0 && Object.keys(currentState.enemyCooldowns.tactical).length === 0 && (
+                      <span className="text-gray-600">无</span>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div>
@@ -999,9 +1299,10 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
                   <thead>
                     <tr className="border-b border-magic-border">
                       <th className="text-left py-2 px-3 text-gray-500 font-display">阵营</th>
-                      <th className="text-right py-2 px-3 text-gray-500 font-display">初始兵力</th>
-                      <th className="text-right py-2 px-3 text-gray-500 font-display">当前兵力</th>
-                      <th className="text-right py-2 px-3 text-gray-500 font-display">伤亡</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-display">初始</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-display">当前</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-display">本回合</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-display">累计伤亡</th>
                       <th className="text-right py-2 px-3 text-gray-500 font-display">伤亡率</th>
                     </tr>
                   </thead>
@@ -1012,6 +1313,7 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
                     ].map(side => {
                       const initial = side.units.reduce((s, u) => s + u.initialCount, 0);
                       const current = side.units.reduce((s, u) => s + u.currentCount, 0);
+                      const turnCas = side.units.reduce((s, u) => s + (u as any).turnCasualties, 0);
                       const cas = initial - current;
                       const rate = initial > 0 ? Math.round((cas / initial) * 100) : 0;
                       return (
@@ -1019,6 +1321,7 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
                           <td className={clsx('py-2 px-3 font-semibold', side.color)}>{side.label}</td>
                           <td className="py-2 px-3 text-right font-mono text-gray-300">{initial.toLocaleString()}</td>
                           <td className="py-2 px-3 text-right font-mono text-gray-300">{current.toLocaleString()}</td>
+                          <td className="py-2 px-3 text-right font-mono text-magic-flame">-{turnCas.toLocaleString()}</td>
                           <td className="py-2 px-3 text-right font-mono text-red-400">{cas.toLocaleString()}</td>
                           <td className="py-2 px-3 text-right">
                             <span className={clsx('font-mono font-bold', rate > 50 ? 'text-red-400' : rate > 25 ? 'text-amber-400' : 'text-emerald-400')}>
@@ -1040,13 +1343,15 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
                     <p className="text-xs text-gray-500 font-display">{side.label}兵种明细</p>
                     {side.units.map(u => {
                       const cas = u.initialCount - u.currentCount;
+                      const turnCas = (u as any).turnCasualties;
                       const rate = u.initialCount > 0 ? Math.round((cas / u.initialCount) * 100) : 0;
                       return (
                         <div key={u.unitId} className="flex items-center gap-2 text-xs">
                           <span className="text-base">{u.icon}</span>
                           <span className="text-gray-300 truncate flex-1">{u.name}</span>
                           <span className="font-mono text-emerald-400">{u.currentCount}</span>
-                          <span className="font-mono text-red-400">-{cas}</span>
+                          {turnCas > 0 && <span className="font-mono text-magic-flame">-{turnCas}</span>}
+                          <span className="font-mono text-red-400">总-{cas}</span>
                           <span className={clsx('font-mono font-bold w-10 text-right', rate > 50 ? 'text-red-400' : rate > 25 ? 'text-amber-400' : 'text-emerald-400')}>
                             {rate}%
                           </span>
@@ -1058,14 +1363,38 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
               </div>
             </div>
 
+            {isKeyTurn && currentState.affectedUnits.length > 0 && (
+              <div className="p-3 rounded-xl bg-magic-gold/5 border-2 border-magic-gold/40">
+                <h6 className="text-xs font-display font-bold uppercase tracking-wider mb-2 text-magic-gold flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5" /> 本回合受影响兵种
+                </h6>
+                <div className="flex flex-wrap gap-2">
+                  {currentState.affectedUnits.map((a, i) => (
+                    <div key={i}
+                      className={clsx(
+                        'flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold',
+                        a.side === 'player'
+                          ? 'bg-red-500/10 border-red-500/40 text-red-400'
+                          : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
+                      )}>
+                      <span>{a.icon}</span>
+                      <span className="truncate">{a.name}</span>
+                      <span className="font-mono">-{a.casualties}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
               <h6 className="text-xs text-gray-400 font-display uppercase tracking-wider mb-2">战斗事件</h6>
-              {skillEvents.length === 0 && formationEvents.length === 0 && surpriseEvents.length === 0 ? (
+              {turnLogEntries.filter(e => e.type !== 'attack').length === 0 ? (
                 <p className="text-sm text-gray-600 italic">该回合无特殊事件</p>
               ) : (
                 <div className="space-y-2">
                   {skillEvents.length > 0 && (
-                    <div className="p-3 rounded-lg bg-magic-purple/10 border border-magic-purple/30">
+                    <motion.div layout
+                      className="p-3 rounded-lg bg-magic-purple/10 border-2 border-magic-purple/50 shadow-[0_0_15px_rgba(147,51,234,0.15)]">
                       <p className="text-xs text-magic-purple font-display font-bold mb-1 flex items-center gap-1.5">
                         <Star className="w-3.5 h-3.5" /> 技能使用
                       </p>
@@ -1074,10 +1403,11 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
                           {e.message}
                         </p>
                       ))}
-                    </div>
+                    </motion.div>
                   )}
                   {formationEvents.length > 0 && (
-                    <div className="p-3 rounded-lg bg-magic-blue/10 border border-magic-blue/30">
+                    <motion.div layout
+                      className="p-3 rounded-lg bg-magic-blue/10 border-2 border-magic-blue/50 shadow-[0_0_15px_rgba(59,130,246,0.15)]">
                       <p className="text-xs text-magic-blue font-display font-bold mb-1 flex items-center gap-1.5">
                         <Shield className="w-3.5 h-3.5" /> 阵型变化
                       </p>
@@ -1086,10 +1416,11 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
                           {e.message}
                         </p>
                       ))}
-                    </div>
+                    </motion.div>
                   )}
                   {surpriseEvents.length > 0 && (
-                    <div className="p-3 rounded-lg bg-magic-flame/10 border border-magic-flame/30">
+                    <motion.div layout
+                      className="p-3 rounded-lg bg-magic-flame/10 border-2 border-magic-flame/50 shadow-[0_0_15px_rgba(239,68,68,0.15)]">
                       <p className="text-xs text-magic-flame font-display font-bold mb-1 flex items-center gap-1.5">
                         <Zap className="w-3.5 h-3.5" /> 奇袭效果
                       </p>
@@ -1098,34 +1429,30 @@ function BattleReplayPanel({ battle }: { battle: BattleState }) {
                           {e.message}
                         </p>
                       ))}
+                    </motion.div>
+                  )}
+                  {moralEvents.length > 0 && (
+                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                      <p className="text-xs text-amber-400 font-display font-bold mb-1 flex items-center gap-1.5">
+                        <TrendingUpIcon className="w-3.5 h-3.5" /> 士气变化
+                      </p>
+                      {moralEvents.map((e, i) => (
+                        <p key={i} className={clsx('text-sm', e.side === 'player' ? 'text-emerald-400' : 'text-red-400')}>
+                          {e.message}
+                        </p>
+                      ))}
                     </div>
                   )}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <h6 className="text-xs text-gray-400 font-display uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-magic-gold" /> 关键转折回合
-              </h6>
-              {keyTurningPoints.length === 0 ? (
-                <p className="text-sm text-gray-600 italic">暂无关键转折</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {keyTurningPoints.map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setSelectedTurn(t)}
-                      className={clsx(
-                        'px-3 py-1.5 rounded-lg text-sm font-display font-bold border-2 transition-all',
-                        t === selectedTurn
-                          ? 'bg-magic-gold/20 border-magic-gold text-magic-gold shadow-gold-glow'
-                          : 'bg-magic-gold/5 border-magic-gold/30 text-magic-goldLight hover:bg-magic-gold/10'
-                      )}
-                    >
-                      ⚡ 回合 {t}
-                    </button>
-                  ))}
+                  {systemEvents.length > 0 && (
+                    <div className="p-3 rounded-lg bg-gray-600/10 border border-gray-500/30">
+                      <p className="text-xs text-gray-400 font-display font-bold mb-1 flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5" /> 系统事件
+                      </p>
+                      {systemEvents.map((e, i) => (
+                        <p key={i} className="text-sm text-gray-400">{e.message}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
